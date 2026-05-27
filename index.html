@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IBI Signed Manifest</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+    <style>
+        :root { --accent: #00c5ff; --bg: #f4f5f7; --card: #ffffff; }
+        body { font-family: 'Roboto', sans-serif; background: var(--bg); margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        .top-bar { width: 100%; padding: 15px; background: var(--card); text-align: left; font-weight: 900; color: var(--accent); }
+        .app-card { background: var(--card); width: 95%; max-width: 500px; margin-top: 20px; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .new-filename-input { width: 100%; padding: 12px; border: 2px dashed var(--accent); border-radius: 8px; font-weight: 700; box-sizing: border-box; }
+        button { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: 700; margin-top: 10px; cursor: pointer; }
+        .btn-upload { background: #10b981; }
+        .btn-clear { background: #ef4444; }
+        #imagePreview { max-width: 100%; display: none; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">v1.7</div>
+    
+    <div class="app-card">
+        <h2 style="color: var(--accent); margin-top:0;">IBI Signed Manifest</h2>
+        
+        <input type="file" id="fileInput" accept="image/*" capture="environment" style="display:none">
+        <button onclick="document.getElementById('fileInput').click()" style="background: var(--accent);">SCAN MANIFEST 📷</button>
+
+        <div id="cropContainer" style="display:none; margin-top:20px;">
+            <img id="imageToCrop" style="max-width:100%">
+            <button onclick="processCrop()" style="background:#3b82f6">CROP & EXTRACT ✂️</button>
+        </div>
+
+        <img id="imagePreview">
+
+        <div id="resultArea" style="display:none; margin-top:20px;">
+            <label style="font-size:12px; font-weight:700;">SYSTEM OUTPUT NAME:</label>
+            <input type="text" class="new-filename-input" id="newFileName">
+            
+            <button class="btn-upload" id="uploadBtn" onclick="uploadToGDrive()">STORE IN G-DRIVE ☁️</button>
+            <button class="btn-clear" onclick="location.reload()">CLEAR / RESTART 🔄</button>
+        </div>
+        
+        <div id="statusText" style="margin-top:15px; font-weight:700;"></div>
+    </div>
+
+    <script>
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyTQTGbx8gEDeQkBV0vfHUVXzyASVMjeg3c9WC00IE5-sGVw_Ec04sBa1xt_IEkuK7dgg/exec';
+        let finalPdfBase64 = null, cropper = null;
+
+        document.getElementById('fileInput').onchange = (e) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = document.getElementById('imageToCrop');
+                img.src = event.target.result;
+                document.getElementById('cropContainer').style.display = 'block';
+                if (cropper) cropper.destroy();
+                cropper = new Cropper(img, { aspectRatio: NaN });
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        };
+
+        function processCrop() {
+            const canvas = cropper.getCroppedCanvas();
+            document.getElementById('imagePreview').src = canvas.toDataURL('image/jpeg');
+            document.getElementById('imagePreview').style.display = 'block';
+            document.getElementById('cropContainer').style.display = 'none';
+            runOCR(canvas);
+        }
+
+        async function runOCR(canvas) {
+            document.getElementById('statusText').innerText = "Extracting data...";
+            try {
+                const worker = await Tesseract.createWorker('eng');
+                const ret = await worker.recognize(canvas);
+                const text = ret.data.text;
+                await worker.terminate();
+                
+                // --- Robust Logic Engine ---
+                let platform = "Other";
+                if (/amazon|atspl/i.test(text)) platform = "Amazon";
+                else if (/flipkart|e-kart/i.test(text)) platform = "Flipkart";
+                else if (/meesho|delhivery|business international/i.test(text)) platform = "Meesho";
+                
+                // Count AWB numbers (13-16 digits)
+                const awbs = text.match(/\b\d{13,16}\b/g) || [];
+                const orderCount = awbs.length > 0 ? awbs.length : 1;
+                
+                const date = new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' });
+                document.getElementById('newFileName').value = `${platform} Manifest ${orderCount} Orders D ${date}`;
+                
+                // Generate PDF
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.addImage(canvas.toDataURL('image/jpeg'), 'JPEG', 10, 10, 180, 250);
+                finalPdfBase64 = doc.output('datauristring');
+                
+                document.getElementById('resultArea').style.display = 'block';
+                document.getElementById('statusText').innerText = "Data Extracted Successfully.";
+            } catch (e) {
+                document.getElementById('statusText').innerText = "OCR Error. Edit name manually.";
+                document.getElementById('resultArea').style.display = 'block';
+            }
+        }
+
+        function uploadToGDrive() {
+            document.getElementById('uploadBtn').innerText = "Uploading...";
+            fetch(GOOGLE_SCRIPT_URL, { 
+                method: 'POST', 
+                body: JSON.stringify({ fileName: document.getElementById('newFileName').value + ".pdf", fileData: finalPdfBase64 }),
+                headers: { 'Content-Type': 'text/plain' }
+            }).then(r => r.json()).then(d => {
+                alert("Upload Status: " + d.status);
+                location.reload();
+            });
+        }
+    </script>
+</body>
+</html>
