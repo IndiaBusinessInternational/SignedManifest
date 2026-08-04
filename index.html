@@ -348,7 +348,7 @@
 <body>
 
 <nav class="top-nav">
-    <span class="version-pill">v8.2</span>
+    <span class="version-pill">v8.3</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -744,9 +744,13 @@ async function testKey(){
                 {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
                  body:JSON.stringify({model,max_tokens:5,messages:[{role:"user",content:"ping"}]})});
         }else if(p==="deepseek"){
+            // thinking:disabled — a 5-token budget is nowhere near enough for a
+            // reasoning pass, so with v4's default (thinking ON) this key test
+            // burns seconds to return an empty reply. It only needs to prove
+            // the key is accepted.
             r=await fetch("https://api.deepseek.com/chat/completions",
                 {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
-                 body:JSON.stringify({model,max_tokens:5,messages:[{role:"user",content:"ping"}]})});
+                 body:JSON.stringify({model,max_tokens:5,thinking:{type:"disabled"},messages:[{role:"user",content:"ping"}]})});
         }else{
             r=await fetch("https://api.anthropic.com/v1/messages",
                 {method:"POST",headers:{"content-type":"application/json","x-api-key":key,
@@ -1887,7 +1891,11 @@ async function deepseekExtract(canvas, key){
     const b64=buildImageB64(canvas);
     let lastErr="";
     for(const model of AI_PROVIDERS.deepseek.models){
-        const body={ model, temperature:0,
+        // thinking:disabled — DeepSeek v4 defaults to THINKING at high effort,
+        // which only adds latency here: this call reads fields off a manifest
+        // image, it does not reason about them. It also keeps the reasoning
+        // pass from eating the output budget before any JSON is emitted.
+        const body={ model, temperature:0, thinking:{type:"disabled"},
             messages:[{ role:"user", content:[
                 {type:"text", text:AI_PROMPT},
                 {type:"image_url", image_url:{url:"data:image/jpeg;base64,"+b64}}
