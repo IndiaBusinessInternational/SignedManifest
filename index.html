@@ -197,6 +197,23 @@
         .btn:disabled{opacity:.55;cursor:not-allowed;}
         .hint{font-size:11px;color:var(--text-sub);text-align:center;margin-top:8px;font-weight:500;}
 
+        /* Staff sign-in overlay */
+        .login-gate{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;
+            justify-content:center;padding:20px;background:var(--bg,#0f1115);
+            /* 100dvh, not vh: a phone's address bar otherwise pushes the button
+               off the bottom of the screen where it cannot be reached. */
+            min-height:100dvh;overflow-y:auto;}
+        .login-gate.hidden{display:none;}
+        .login-card{width:100%;max-width:380px;background:var(--card,#171a21);
+            border-radius:var(--radius,14px);padding:26px 22px;
+            box-shadow:0 18px 50px rgba(0,0,0,.45);text-align:left;}
+        .login-logo{font-size:38px;text-align:center;line-height:1;}
+        .login-title{font-family:"Roboto",sans-serif;font-weight:900;font-size:19px;
+            text-align:center;margin:10px 0 2px;color:var(--text,#e8eaee);}
+        .login-sub{text-align:center;font-size:12px;color:var(--text-sub,#98a1b0);
+            margin-bottom:18px;}
+        .login-card .hint{text-align:center;}
+
         /* Gemini key box */
         .key-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
         .btn-mini{flex:1 1 0;padding:9px 10px;border:none;border-radius:var(--radius-sm);color:#fff;
@@ -347,8 +364,31 @@
 </head>
 <body>
 
+<!-- Staff sign-in. This hides the app, but it is NOT what protects anything:
+     the page is public and anyone can delete this overlay from devtools. The
+     real protection is that the backend refuses to scan or save without a
+     signed token, which only the correct password can obtain. -->
+<div id="loginGate" class="login-gate">
+    <div class="login-card">
+        <div class="login-logo">&#128203;</div>
+        <h1 class="login-title">IBI Signed Manifest</h1>
+        <div class="login-sub">Sign in to record a courier pickup</div>
+        <label class="field-label" for="loginUser">Username</label>
+        <input type="text" id="loginUser" class="ctrl" value="IBI-Manifest" readonly
+               autocomplete="username">
+        <label class="field-label" style="margin-top:10px;" for="loginPass">Password</label>
+        <input type="password" id="loginPass" class="ctrl no-reveal"
+               autocomplete="current-password" autocorrect="off" autocapitalize="off"
+               spellcheck="false" placeholder="Staff password"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();doLogin();}">
+        <button type="button" class="btn btn-store" style="margin-top:14px;width:100%;"
+                id="loginBtn" onclick="doLogin()">Sign in</button>
+        <div id="loginStatus" class="hint"></div>
+    </div>
+</div>
+
 <nav class="top-nav">
-    <span class="version-pill">v8.5</span>
+    <span class="version-pill">v9.0</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -363,12 +403,12 @@
 
 <!-- Settings modal (backdrop + centered panel / mobile bottom-sheet) -->
 <div id="settingsBackdrop" class="settings-backdrop" onclick="closeSettings()"></div>
-<div id="settingsPanel" class="settings-panel" role="dialog" aria-modal="true" aria-label="AI Engine and API Key">
+<div id="settingsPanel" class="settings-panel" role="dialog" aria-modal="true" aria-label="AI Engine">
     <div class="settings-head">
-        <span>&#9881;&#65039; AI Engine &amp; API Key</span>
+        <span>&#9881;&#65039; AI Engine</span>
         <button type="button" class="settings-close" onclick="closeSettings()" title="Close">&times;</button>
     </div>
-    <div class="settings-note">Keys are stored only in this browser.</div>
+    <div class="settings-note">Keys live on the server, never in this browser. The engine is the CEO's choice and applies to every device.</div>
     <label class="field-label">AI Engine</label>
     <select class="ctrl" id="providerSelect" onchange="onProviderChange()">
         <option value="local">IBI Local (on-device)</option>
@@ -377,29 +417,37 @@
         <option value="claude">Claude (Anthropic)</option>
         <option value="deepseek">DeepSeek</option>
     </select>
-    <div id="localUrlRow" style="display:none;">
-        <label class="field-label" style="margin-top:10px;">On-device engine address</label>
-        <input type="url" id="localUrlInput" class="ctrl" autocomplete="off"
-               autocorrect="off" autocapitalize="off" spellcheck="false"
-               placeholder="https://ai-local.indiabusinessinternational.online"
-               oninput="rememberLocalUrl()">
-        <div class="hint" style="margin-top:6px;">Leave as-is unless the engine has moved.
-            The laptop running it must be awake.</div>
+    <div class="hint" style="margin-top:6px;" id="engineHint">&nbsp;</div>
+
+    <!-- CEO only. The dropdown above is disabled until this is unlocked, and
+         unlocking proves nothing on its own: the server checks the CEO token
+         again before it will change the engine. -->
+    <div id="ceoRow" style="margin-top:14px;border-top:1px solid rgba(128,128,128,.3);padding-top:12px;">
+        <label class="field-label">CEO controls</label>
+        <div id="ceoLocked">
+            <input type="password" id="ceoPin" class="ctrl no-reveal" autocomplete="off"
+                   autocorrect="off" autocapitalize="off" spellcheck="false"
+                   placeholder="CEO PIN to change the engine"
+                   oncopy="return false" oncut="return false" ondragstart="return false"
+                   oncontextmenu="return false"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();ceoUnlock();}">
+            <div class="key-row" style="margin-top:8px;">
+                <button type="button" class="btn-mini btn-test" onclick="ceoUnlock()">Unlock</button>
+            </div>
+        </div>
+        <div id="ceoUnlocked" style="display:none;">
+            <div class="key-row">
+                <button type="button" class="btn-mini btn-save" onclick="saveEngine()">Save engine</button>
+                <button type="button" class="btn-mini btn-clearkey" onclick="ceoLock()">Lock</button>
+            </div>
+        </div>
+        <div id="ceoStatus" class="hint"></div>
     </div>
-    <input type="password" id="apiKeyInput" class="ctrl no-reveal" autocomplete="off"
-           autocorrect="off" autocapitalize="off" spellcheck="false"
-           style="margin-top:10px;"
-           placeholder="Paste your API key (saves automatically)"
-           oninput="rememberKeyFromInput()"
-           oncopy="return false" oncut="return false" ondragstart="return false"
-           oncontextmenu="return false"
-           onkeydown="if((event.ctrlKey||event.metaKey)&&['c','x'].includes(event.key.toLowerCase())){event.preventDefault();return false;} if(event.key==='Enter'){event.preventDefault();saveKey();}">
-    <div class="key-row" style="margin-top:8px;">
-        <button type="button" class="btn-mini btn-save" onclick="saveKey()">Save</button>
-        <button type="button" class="btn-mini btn-test" onclick="testKey()">Test</button>
-        <button type="button" class="btn-mini btn-clearkey" onclick="clearKey()">Clear</button>
-    </div>
+
     <div id="keyStatus" class="hint"></div>
+    <div class="key-row" style="margin-top:10px;">
+        <button type="button" class="btn-mini btn-clearkey" onclick="signOut()">Sign out</button>
+    </div>
     <div id="installRow" class="install-row" style="display:none;">
         <button type="button" class="btn btn-store" onclick="doInstall()">&#128241;&nbsp; Install this app on your device</button>
     </div>
@@ -643,272 +691,205 @@ if(isIOS() && !isStandalone()) maybeShowBanner();
 const GAS_URL = "https://script.google.com/macros/s/AKfycbyR-r3tIlrg9ji-eaPXnSCkz19LSiOJmt-6mpp7TuU_MvxuimfkVQCGd2A_OfXR7h_M/exec";
 
 /* ===================================================================
-   GEMINI AI VISION  (called directly from YOUR browser)
-   The API key is NOT stored in this file. You paste it once into the
-   "Gemini API Key" field on the page; it is saved only in this browser
-   (localStorage) and sent straight to Google from your device. Nothing
-   sensitive appears in the public page source.
+   AI ENGINES  (v9.0 - the keys are NOT here any more)
+
+   Every API key and the on-device access code now live in the Apps
+   Script's Script Properties, on the server. This page is served from
+   a PUBLIC GitHub repo: anything written here is readable by anyone
+   who views source, so a key could never safely live in it.
+
+   The page therefore holds no credential at all. It sends the photo to
+   the backend with a signed session token; the backend calls the AI
+   with a key this browser never sees and returns only the three
+   answers. Which engine runs is the CEO's choice, stored server-side.
 =================================================================== */
-const AI_PROVIDERS = {
-    gemini: { label:"Google Gemini",     store:"ibi_key_gemini", cred:"key",
-              models:["gemini-2.5-flash","gemini-2.0-flash","gemini-flash-latest"] },
-    openai: { label:"OpenAI (ChatGPT)",  store:"ibi_key_openai", cred:"key",
-              models:["gpt-4.1-mini","gpt-4o-mini","gpt-4o"] },
-    claude: { label:"Claude (Anthropic)",store:"ibi_key_claude", cred:"key",
-              models:["claude-sonnet-4-6","claude-haiku-4-5-20251001","claude-3-5-sonnet-20241022"] },
-    deepseek:{ label:"DeepSeek",         store:"ibi_key_deepseek", cred:"key",
-              models:["deepseek-v4-flash","deepseek-chat"] },
-    // The on-device engine. Its credential is not a vendor API key but the
-    // gateway's access code, so the wording changes with `cred` and an extra
-    // address field appears — the model runs on our own laptop, and a phone
-    // has to be told where that laptop is.
-    local:  { label:"IBI Local (on-device)", store:"ibi_ai_local_code", cred:"access code",
-              isLocal:true, models:["qwen3.5:4b"] }
+const ENGINE_LABELS = {
+    local:"IBI Local (on-device)", gemini:"Google Gemini",
+    openai:"OpenAI (ChatGPT)", claude:"Claude (Anthropic)", deepseek:"DeepSeek"
 };
-const PROVIDER_STORE = "ibi_ai_provider";
-let sessionKeys = { gemini:"", openai:"", claude:"", deepseek:"", local:"" };
 
-// What this engine's credential is called, so one set of messages can say
-// "key" for the vendors and "access code" for our own engine.
-function credWord(p){ return (AI_PROVIDERS[p] && AI_PROVIDERS[p].cred) || "key"; }
+/* IBI CEO Auth - the one script that knows the CEO PIN. The PIN is never
+   compared here: this page sends it there and gets back a signed token,
+   which our own backend re-verifies before it will change anything. A PIN
+   compared in page code is public the moment the page is. */
+const CEO_AUTH_URL = "https://script.google.com/macros/s/AKfycbxIW4j7m51JjX6yt38-a1X6XrDRyZp3czMYN8eXECfP9H2twjfrgLaozWCCl843AgWo0g/exec";
 
-/* ---- On-device engine address ------------------------------------------
-   The manifest is usually photographed on a phone, so "localhost" is not an
-   option: the phone is not the machine running the model. The default is the
-   gateway that fronts the laptop, which is reachable from anywhere, checks the
-   access code, and only exposes the two chat routes. It is stored per browser
-   so a laptop sitting next to the runtime can point straight at it instead. */
-const DEFAULT_LOCAL_URL = "https://ai-local.indiabusinessinternational.online";
-const LOCAL_URL_STORE   = "ibi_ai_local_url";
-function localBase(){
-    let u="";
-    try{ u=localStorage.getItem(LOCAL_URL_STORE)||""; }catch(e){}
-    return (u.trim() || DEFAULT_LOCAL_URL).replace(/\/+$/,"");
-}
-/* True when the address is this very machine. The two cases need different
-   headers, and the difference is not cosmetic - see localHeaders(). */
-function localIsLoopback(){
-    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(localBase());
-}
-/* The access code is for the GATEWAY, which is the only way in from off the
-   laptop. The runtime itself has no authentication, and - measured against it -
-   does not list x-ibi-access in its CORS Access-Control-Allow-Headers, so
-   sending the code straight to loopback makes the browser block the whole
-   request before it is sent ("Failed to fetch", which reads as the engine being
-   down). So the code goes only where it is both needed and accepted. */
-function localHeaders(code, extra){
-    const h=Object.assign({}, extra||{});
-    if(code && !localIsLoopback()) h["x-ibi-access"]=code;
-    return h;
-}
-function rememberLocalUrl(){
-    const el=document.getElementById("localUrlInput");
-    if(!el) return;
-    const v=(el.value||"").trim();
-    try{ if(v) localStorage.setItem(LOCAL_URL_STORE,v); else localStorage.removeItem(LOCAL_URL_STORE); }catch(e){}
-}
+const TOKEN_STORE = "ibi_manifest_session";
+let engineState = { chosen:"local", engines:[] };
+let ceoToken = "";          // memory only - a CEO unlock never outlives the tab
 
-function getProvider(){
-    const sel=document.getElementById("providerSelect");
-    if(sel && AI_PROVIDERS[sel.value]) return sel.value;
-    return storedProvider();
-}
-
-/* The saved choice, ignoring the dropdown. initProvider MUST use this and not
-   getProvider(): before it runs, the <select> still holds whichever option is
-   first in the markup, so getProvider() would answer with that and then save it
-   over whatever the user had actually picked - silently undoing their choice on
-   every reload. */
-function storedProvider(){
-    try{ const p=localStorage.getItem(PROVIDER_STORE); if(p && AI_PROVIDERS[p]) return p; }catch(e){}
-    // The on-device engine is the default: it has no per-scan quota. The hosted
-    // free tiers stop after a handful of manifests with a "try again later",
-    // and the app then drops to Tesseract, which reads these pages far worse.
-    return "local";
-}
-
-function getKey(provider){
-    provider = provider || getProvider();
-    const store = AI_PROVIDERS[provider].store;
-    // 1) persisted  2) legacy slot (gemini)  3) this session  4) live field (if selected provider)
-    try{ const v=localStorage.getItem(store); if(v && v.trim()) return v.trim(); }catch(e){}
-    if(provider==="gemini"){ try{ const old=localStorage.getItem("ibi_gemini_key"); if(old && old.trim()) return old.trim(); }catch(e){} }
-    if(sessionKeys[provider]) return sessionKeys[provider];
-    if(provider===getProvider()){
-        const el=document.getElementById("apiKeyInput");
-        if(el && el.value.trim()) return el.value.trim();
-    }
-    return "";
-}
-
-// Switching the engine: remember choice, show that engine's saved key + status.
-function onProviderChange(){
-    const p=getProvider();
-    try{ localStorage.setItem(PROVIDER_STORE,p); }catch(e){}
-    prefillKeyField();
-    refreshKeyStatus();
-}
-
-// Put the stored key for the current engine back into the field (so it's visible).
-// Reads ONLY persisted/session values (not the live field) to avoid mixing engines.
-function prefillKeyField(){
-    const p=getProvider();
-    const el=document.getElementById("apiKeyInput");
-    // The address field belongs to the on-device engine only.
-    const row=document.getElementById("localUrlRow");
-    if(row) row.style.display = AI_PROVIDERS[p].isLocal ? "block" : "none";
-    const urlEl=document.getElementById("localUrlInput");
-    if(urlEl && AI_PROVIDERS[p].isLocal){
-        let u=""; try{ u=localStorage.getItem(LOCAL_URL_STORE)||""; }catch(e){}
-        urlEl.value=u;   // blank shows the default as placeholder
-    }
-    if(!el) return;
-    el.placeholder = AI_PROVIDERS[p].isLocal
-        ? "Paste the on-device engine access code (saves automatically)"
-        : "Paste your "+AI_PROVIDERS[p].label+" API key (saves automatically)";
-    let stored="";
-    try{ stored=localStorage.getItem(AI_PROVIDERS[p].store)||""; }catch(e){}
-    if(!stored && p==="gemini"){ try{ stored=localStorage.getItem("ibi_gemini_key")||""; }catch(e){} }
-    if(!stored) stored=sessionKeys[p]||"";
-    el.value=(stored||"").trim();
-}
-
-// Auto-remember as the user types/pastes — no Save tap needed.
-function rememberKeyFromInput(){
-    const p=getProvider();
-    const el=document.getElementById("apiKeyInput");
-    const v=el ? (el.value||"").trim() : "";
-    if(v){ sessionKeys[p]=v; try{ localStorage.setItem(AI_PROVIDERS[p].store,v); }catch(e){} }
-    refreshKeyStatus();
-}
-
-function saveKey(){
-    const p=getProvider();
-    const el=document.getElementById("apiKeyInput");
-    const v=(el.value||"").trim();
-    if(!v){ refreshKeyStatus("\u26A0\uFE0F Paste your "+AI_PROVIDERS[p].label+" "+credWord(p)+" in the box first."); return; }
-    sessionKeys[p]=v;
-    let persisted=false;
-    try{ localStorage.setItem(AI_PROVIDERS[p].store,v); persisted=true; }catch(e){ persisted=false; }
-    el.value=v;   // keep it visible so you can see it IS saved
-    refreshKeyStatus(persisted
-        ? "\u2705 "+AI_PROVIDERS[p].label+" "+credWord(p)+" saved in this browser \u2013 AI extraction is ON."
-        : "\u2705 "+AI_PROVIDERS[p].label+" "+credWord(p)+" set for this session \u2013 AI extraction is ON. "+
-          "(This browser blocks storage, so re-enter it next time.)");
-}
-function clearKey(){
-    const p=getProvider();
-    sessionKeys[p]="";
-    try{ localStorage.removeItem(AI_PROVIDERS[p].store); }catch(e){}
-    if(p==="gemini"){ try{ localStorage.removeItem("ibi_gemini_key"); }catch(e){} }
-    const el=document.getElementById("apiKeyInput"); if(el) el.value="";
-    refreshKeyStatus("\uD83D\uDDD1\uFE0F "+AI_PROVIDERS[p].label+" "+credWord(p)+" removed. Offline OCR will be used.");
-}
-
-// Quick check that the selected key actually works (no scan needed).
-async function testKey(){
-    const p=getProvider(), label=AI_PROVIDERS[p].label, key=getKey(p);
-    if(!key){ refreshKeyStatus("\u26A0\uFE0F Paste your "+label+" "+credWord(p)+" first, then tap Test."); return; }
-    refreshKeyStatus("\u23F3 Testing "+label+" key&hellip;");
-    const model=AI_PROVIDERS[p].models[0];
+function staffToken(){
     try{
-        let r;
-        if(p==="local"){
-            // /v1/models is the gateway's other allowed route. It proves three
-            // things at once and costs no generation: the laptop is reachable,
-            // the access code is right, and the runtime is actually SERVING the
-            // model. A listening port that serves an empty model list is the
-            // failure this catches - everything looks up, every scan 404s.
-            r=await fetch(localBase()+"/v1/models",{headers:localHeaders(key)});
-            if(r.ok){
-                let names=[];
-                try{ const j=await r.json(); names=(j.data||[]).map(function(m){return m.id;}); }catch(e){}
-                if(!names.length){
-                    refreshKeyStatus("\u26A0\uFE0F Reached the on-device engine, but it is serving "+
-                        "NO models. The runtime needs restarting on the laptop."); return;
-                }
-                if(names.indexOf(model)<0){
-                    refreshKeyStatus("\u26A0\uFE0F Reached the on-device engine, but <b>"+model+
-                        "</b> is not loaded (it has: "+names.join(", ")+")."); return;
-                }
-                refreshKeyStatus("\u2705 On-device engine reachable and <b>"+model+
-                    "</b> is loaded \u2013 AI extraction is ON."); return;
-            }
-            if(r.status===401){ refreshKeyStatus("\u274C Access code rejected (401). Check the code."); return; }
-            if(r.status===403){ refreshKeyStatus("\u274C This site is not an allowed caller (403)."); return; }
-            refreshKeyStatus("\u274C On-device engine \u2013 HTTP "+r.status+
-                ". The gateway may be up but the runtime down."); return;
-        }else if(p==="gemini"){
-            r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent?key="+key,
-                {method:"POST",headers:{"Content-Type":"application/json"},
-                 body:JSON.stringify({contents:[{parts:[{text:"ping"}]}]})});
-        }else if(p==="openai"){
-            r=await fetch("https://api.openai.com/v1/chat/completions",
-                {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
-                 body:JSON.stringify({model,max_tokens:5,messages:[{role:"user",content:"ping"}]})});
-        }else if(p==="deepseek"){
-            // thinking:disabled — a 5-token budget is nowhere near enough for a
-            // reasoning pass, so with v4's default (thinking ON) this key test
-            // burns seconds to return an empty reply. It only needs to prove
-            // the key is accepted.
-            r=await fetch("https://api.deepseek.com/chat/completions",
-                {method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
-                 body:JSON.stringify({model,max_tokens:5,thinking:{type:"disabled"},messages:[{role:"user",content:"ping"}]})});
-        }else{
-            r=await fetch("https://api.anthropic.com/v1/messages",
-                {method:"POST",headers:{"content-type":"application/json","x-api-key":key,
-                 "anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-                 body:JSON.stringify({model,max_tokens:5,messages:[{role:"user",content:"ping"}]})});
-        }
-        if(r.ok){ refreshKeyStatus("\u2705 "+label+" key works ("+model+") \u2013 AI extraction is ON."); }
-        else{ const t=(await r.text()).slice(0,180); refreshKeyStatus("\u274C "+label+" HTTP "+r.status+": "+t); }
-    }catch(e){
-        refreshKeyStatus("\u274C "+label+" call blocked: "+e.message+" (browser CORS / network).");
-    }
+        const raw = localStorage.getItem(TOKEN_STORE);
+        if(!raw) return "";
+        const o = JSON.parse(raw);
+        if(!o.token || !o.exp || Date.now() > o.exp) return "";
+        return o.token;
+    }catch(e){ return ""; }
 }
-function refreshKeyStatus(msg){
-    refreshEngineChip();
-    const el = document.getElementById("keyStatus");
-    if(!el) return;
-    if(msg){ el.innerHTML = msg; return; }
-    const p=getProvider(), label=AI_PROVIDERS[p].label, k=getKey(p);
-    if(k){
-        const tail = k.length>4 ? k.slice(-4) : k;
-        el.innerHTML = "&#128273; "+label+" "+credWord(p)+" is set &#10003; (\u2022\u2022\u2022\u2022"+tail+") \u2013 AI extraction is ON.";
-    } else {
-        el.innerHTML = "&#128273; No "+label+" "+credWord(p)+" set \u2013 offline OCR will be used. Paste it above.";
+function setStaffToken(token, ttlMs){
+    try{ localStorage.setItem(TOKEN_STORE, JSON.stringify(
+        {token: token, exp: Date.now() + (ttlMs || 12*60*60*1000)})); }catch(e){}
+}
+function clearStaffToken(){ try{ localStorage.removeItem(TOKEN_STORE); }catch(e){} }
+
+/* text/plain is deliberate: it keeps the browser from sending a CORS
+   preflight, which Apps Script does not answer. Sending application/json
+   here makes every call fail with an opaque network error. */
+async function gasPost(payload){
+    const r = await fetch(GAS_URL, {method:"POST",
+        headers:{"Content-Type":"text/plain"}, body: JSON.stringify(payload)});
+    const raw = await r.text();
+    let d=null; try{ d=JSON.parse(raw); }catch(e){}
+    if(!d) throw new Error("The backend did not return a valid reply (HTTP "+r.status+
+        "). It usually needs re-deploying or re-authorizing.");
+    if(d.status==="ERROR") throw new Error(d.error || "Server error");
+    return d;
+}
+
+/* ---------- staff sign-in ---------- */
+async function doLogin(){
+    const pass = (document.getElementById("loginPass").value||"").trim();
+    const btn  = document.getElementById("loginBtn");
+    if(!pass){ setLoginStatus("\u26A0\uFE0F Enter the staff password."); return; }
+    btn.disabled = true; setLoginStatus("\u23F3 Signing in&hellip;");
+    try{
+        const d = await gasPost({action:"login", password:pass});
+        if(!d.ok){ setLoginStatus("\u274C "+(d.error||"Sign-in refused.")); btn.disabled=false; return; }
+        setStaffToken(d.token, d.ttlMs);
+        if(d.engine) engineState = d.engine;
+        document.getElementById("loginPass").value="";
+        setLoginStatus("");
+        showApp();
+    }catch(e){
+        setLoginStatus("\u274C "+e.message);
+    }
+    btn.disabled = false;
+}
+function setLoginStatus(msg){
+    const el=document.getElementById("loginStatus"); if(el) el.innerHTML=msg||"";
+}
+function showApp(){
+    const g=document.getElementById("loginGate"); if(g) g.classList.add("hidden");
+    document.body.style.overflow="";
+    renderEngine();
+}
+function showLogin(msg){
+    const g=document.getElementById("loginGate"); if(g) g.classList.remove("hidden");
+    if(msg) setLoginStatus(msg);
+    const p=document.getElementById("loginPass"); if(p) p.focus();
+}
+function signOut(){
+    clearStaffToken(); ceoToken=""; closeSettings(); showLogin("");
+}
+
+/* Ask the server which engine is live. Also the session check: an expired
+   token is refused here, which is how the app finds out to show sign-in
+   again rather than failing later, mid-scan, with a photo already taken. */
+async function refreshSession(){
+    const t = staffToken();
+    if(!t){ showLogin(""); return false; }
+    try{
+        const d = await gasPost({action:"session", token:t});
+        if(d.engine) engineState = d.engine;
+        showApp();
+        return true;
+    }catch(e){
+        clearStaffToken();
+        showLogin("\u23F3 Your session has expired - please sign in again.");
+        return false;
     }
 }
 
-// The always-visible chip on the card telling you which engine will run.
+/* ---------- engine display ---------- */
+function renderEngine(){
+    const sel=document.getElementById("providerSelect");
+    if(sel){
+        Array.from(sel.options).forEach(function(opt){
+            const en=(engineState.engines||[]).filter(function(x){return x.id===opt.value;})[0];
+            const label=ENGINE_LABELS[opt.value]||opt.value;
+            opt.text = label + (en ? (en.configured ? "  \u2713 ready" : "  \u2013 not set up") : "");
+        });
+        sel.value = engineState.chosen || "local";
+        sel.disabled = !ceoToken;      // staff may look, only the CEO may change
+    }
+    const hint=document.getElementById("engineHint");
+    if(hint){
+        hint.innerHTML = ceoToken
+            ? "Pick the engine, then <b>Save engine</b>. It applies to every device at once."
+            : "Chosen by the CEO. Unlock below to change it.";
+    }
+    refreshEngineChip();
+}
 function refreshEngineChip(){
-    decorateProviderOptions();
     const chip=document.getElementById("engineChip");
     const txt=document.getElementById("engineChipText");
     if(!chip||!txt) return;
-    const p=getProvider(), label=AI_PROVIDERS[p].label, k=getKey(p);
+    const id=engineState.chosen||"local";
+    const en=(engineState.engines||[]).filter(function(x){return x.id===id;})[0];
+    const label=ENGINE_LABELS[id]||id;
     chip.classList.remove("ai","offline");
-    if(k){
+    if(en && en.configured){
         chip.classList.add("ai");
         txt.innerHTML = "\uD83D\uDFE2 AI engine: <b>"+label+"</b> &nbsp;\u2013&nbsp; ready";
     }else{
         chip.classList.add("offline");
-        txt.innerHTML = "\uD83D\uDFE1 Offline OCR (no "+label+" "+credWord(p)+") &nbsp;\u2013&nbsp; tap to set up";
+        txt.innerHTML = "\uD83D\uDFE1 <b>"+label+"</b> is not set up on the server &nbsp;\u2013&nbsp; offline OCR will be used";
     }
 }
-
-// Append a "key saved" tick to each engine in the dropdown that has a stored key,
-// so it's obvious which of the 4 are ready to pick.
-function decorateProviderOptions(){
-    const sel=document.getElementById("providerSelect");
-    if(!sel) return;
-    Array.from(sel.options).forEach(function(opt){
-        const prov=opt.value;
-        if(!AI_PROVIDERS[prov]) return;
-        const has = !!getKey(prov);
-        opt.text = AI_PROVIDERS[prov].label + (has ? "  \u2713 "+credWord(prov)+" saved" : "  \u2013 no "+credWord(prov));
-    });
+// Kept because the settings modal and a few status paths call it.
+function refreshKeyStatus(msg){
+    renderEngine();
+    const el=document.getElementById("keyStatus"); if(!el) return;
+    el.innerHTML = msg || "";
 }
+
+/* ---------- CEO controls ---------- */
+async function ceoUnlock(){
+    const pin=(document.getElementById("ceoPin").value||"").trim();
+    if(!pin){ setCeoStatus("\u26A0\uFE0F Enter the CEO PIN."); return; }
+    setCeoStatus("\u23F3 Checking&hellip;");
+    try{
+        const r=await fetch(CEO_AUTH_URL,{method:"POST",
+            headers:{"Content-Type":"text/plain;charset=utf-8"},
+            body:JSON.stringify({action:"verifyCeo", pin:pin})});
+        const d=await r.json();
+        if(!d.ok){ setCeoStatus("\u274C "+(d.error||"PIN refused.")); return; }
+        ceoToken=d.token;
+        document.getElementById("ceoPin").value="";
+        document.getElementById("ceoLocked").style.display="none";
+        document.getElementById("ceoUnlocked").style.display="block";
+        setCeoStatus("\u2705 Unlocked - you can change the engine.");
+        renderEngine();
+    }catch(e){ setCeoStatus("\u274C Could not reach CEO Auth: "+e.message); }
+}
+function ceoLock(){
+    ceoToken="";
+    document.getElementById("ceoLocked").style.display="block";
+    document.getElementById("ceoUnlocked").style.display="none";
+    setCeoStatus("\uD83D\uDD12 Locked.");
+    renderEngine();
+}
+async function saveEngine(){
+    if(!ceoToken){ setCeoStatus("\u26A0\uFE0F Unlock first."); return; }
+    const id=document.getElementById("providerSelect").value;
+    setCeoStatus("\u23F3 Saving&hellip;");
+    try{
+        const d=await gasPost({action:"setEngine", ceoToken:ceoToken, engine:id});
+        engineState=d.engine;
+        renderEngine();
+        const en=(engineState.engines||[]).filter(function(x){return x.id===id;})[0];
+        setCeoStatus(en && en.configured
+            ? "\u2705 Saved. Every device now uses <b>"+(ENGINE_LABELS[id]||id)+"</b>."
+            : "\u2705 Saved, but <b>"+(ENGINE_LABELS[id]||id)+"</b> has no credential on the "+
+              "server yet, so scans will fall through to another engine.");
+    }catch(e){ setCeoStatus("\u274C "+e.message); }
+}
+function setCeoStatus(msg){
+    const el=document.getElementById("ceoStatus"); if(el) el.innerHTML=msg||"";
+}
+// The dropdown is only live for the CEO; staff changing it must not stick.
+function onProviderChange(){ if(!ceoToken) renderEngine(); }
 
 let finalPdfBase64 = null, cropper = null, userEditedName = false;
 let pages = [];   // cropped/deskewed page canvases (used for PDF + thumbnails)
@@ -938,41 +919,10 @@ function updateClock(){
 }
 updateClock(); setInterval(updateClock,1000);
 renderHistory();
-/* One-time move of existing devices onto the on-device engine. Without this the
-   new default would be invisible on every phone already in use: each has an
-   engine stored from before, and a stored choice beats a default forever.
-   Nothing is deleted - every saved API key stays put - and picking a hosted
-   engine again sticks, because this flag is only ever set once. */
-const DEFAULTS_MOVED = "ibi_ai_default_local_v85";
-let movedToLocal = false;
-(function migrateToLocalDefault(){
-    try{
-        if(localStorage.getItem(DEFAULTS_MOVED)) return;
-        localStorage.setItem(DEFAULTS_MOVED,"1");
-        const cur=localStorage.getItem(PROVIDER_STORE);
-        if(cur && cur!=="local"){ localStorage.setItem(PROVIDER_STORE,"local"); movedToLocal=true; }
-    }catch(e){}
-})();
-
-(function initProvider(){
-    const p=storedProvider();   // NOT getProvider() - see storedProvider()
-    const sel=document.getElementById("providerSelect");
-    if(sel) sel.value=p;
-    prefillKeyField();
-    refreshKeyStatus();
-    // If no key is set yet, open the settings modal once so it's discoverable.
-    if(!getKey()) openSettings();
-    // Say why the engine changed under them, and - if the code is not on this
-    // device yet - why the panel just opened, rather than leaving a staff member
-    // guessing at a settings screen mid-shift.
-    if(movedToLocal){
-        refreshKeyStatus(getKey()
-            ? "\u2699\uFE0F Switched to <b>IBI Local (on-device)</b> \u2013 no scan limit. "+
-              "Your other engines are still saved; pick one any time."
-            : "\u2699\uFE0F Switched to <b>IBI Local (on-device)</b>, which has no scan limit. "+
-              "Paste its access code above to finish. Your other engines are still "+
-              "saved if you would rather switch back.");
-    }
+(function initSession(){
+    // Show whichever screen is right, then confirm the token with the server.
+    if(!staffToken()) showLogin("");
+    else { showApp(); refreshSession(); }
 })();
 
 /* ---------- Settings modal ---------- */
@@ -982,7 +932,7 @@ function openSettings(){
     if(pnl) pnl.classList.add("open");
     if(bd) bd.classList.add("open");
     document.body.style.overflow="hidden";   // lock background scroll
-    prefillKeyField(); refreshKeyStatus();
+    renderEngine(); refreshKeyStatus();
 }
 function closeSettings(){
     const pnl=document.getElementById("settingsPanel");
@@ -1919,217 +1869,30 @@ function buildImageB64(canvas){
     return c.toDataURL("image/jpeg",0.9).split(",")[1];
 }
 
-const AI_PROMPT =
-    "You are reading an Indian eCommerce courier 'pickup manifest'. The photo may be rotated sideways "+
-    "or taken at an angle - read it in any orientation. Read BOTH printed text AND any handwritten text "+
-    "(handwritten dates, names, counts, signatures). Identify three facts:\n"+
-    "platform: one of Amazon, Flipkart, Shopsy, Meesho, ShopClues, Other. Clues - Amazon says "+
-    "'Amazon Pickup'/'Courier: Amazon ATS' with order IDs like 403-4213187-8390703; ShopClues says "+
-    "'ShopClues.com Manifest Report'; Meesho has a 'Sub Order No.' column and ships via Delhivery; "+
-    "Flipkart/Shopsy use Ekart and say 'Logistics Manifest'/'EKART LOGISTICS' with a 'Tracking Id' column.\n"+
-    "totalOrders: the EXACT number of order/product rows in the main table. Prefer a printed count if "+
-    "present (e.g. 'Total Packages: 6', 'Total Shipments to Dispatch: 4', 'No. Of Shipments: 1'), else count every row.\n"+
-    "pickupDate: the manifest/pickup date as 'D Month YYYY' (e.g. '29 May 2026'), including a handwritten date if that is what is present; empty string if none.\n"+
-    "Respond with ONLY minified JSON and nothing else: "+
-    "{\"platform\":\"...\",\"totalOrders\":0,\"pickupDate\":\"...\"}";
-
-/* The on-device model is a 4B one, and it does not follow the prose prompt above
-   as reliably as the hosted engines do. Measured on four manifests (Flipkart
-   clean, Flipkart photographed at an angle under uneven light, Amazon, Meesho),
-   two runs each: with AI_PROMPT it read the row count and the handwritten date
-   correctly 8/8 but got the PLATFORM right only 4/8 - it saw "EKART LOGISTICS"
-   and still answered "Other". Restating the platform step as a literal
-   word -> answer table, and saying outright that "Other" is a last resort,
-   took it to 8/8 on all three fields. Same facts as AI_PROMPT, ordered for a
-   small model. The hosted engines keep the original prompt, which they pass. */
-const AI_PROMPT_LOCAL =
-    "You are reading an Indian eCommerce courier 'pickup manifest'. The photo may be rotated sideways "+
-    "or taken at an angle - read it in any orientation. Read BOTH printed and handwritten text.\n\n"+
-    "STEP 1 - platform. Look at the words printed on the page and apply the FIRST rule that matches:\n"+
-    "  the page shows 'Ekart' or 'EKART LOGISTICS'   -> Flipkart\n"+
-    "  the page shows 'Shopsy'                        -> Shopsy\n"+
-    "  the page shows 'Amazon' or 'Amazon ATS'        -> Amazon\n"+
-    "  the page shows 'Meesho', or a 'Sub Order No.' column, or 'Delhivery' -> Meesho\n"+
-    "  the page shows 'ShopClues'                     -> ShopClues\n"+
-    "  none of those words appear anywhere            -> Other\n"+
-    "Answer 'Other' ONLY if none of those brand words appear. If a brand word appears, you MUST "+
-    "return its platform.\n\n"+
-    "STEP 2 - totalOrders: the EXACT number of order rows in the main table. Prefer a printed total "+
-    "if present ('Total Packages: 6', 'Total Shipments to Dispatch: 4', 'No. Of Shipments: 1'), else count every row.\n\n"+
-    "STEP 3 - pickupDate: the manifest/pickup date written as 'D Month YYYY' with the month spelled "+
-    "out in full, e.g. '29 May 2026'. Use the handwritten date if that is the one present. Empty string if none.\n\n"+
-    "Respond with ONLY minified JSON and nothing else: "+
-    "{\"platform\":\"...\",\"totalOrders\":0,\"pickupDate\":\"...\"}";
-
 function normalizeResult(data, engine){
     const platform = PLATFORMS.includes(data.platform) ? data.platform : "Other";
     const orders   = Math.max(1, parseInt(data.totalOrders)||1);
-    const date     = (data.pickupDate && /\d/.test(String(data.pickupDate))) ? String(data.pickupDate).trim() : todayStr();
+    const date     = (data.pickupDate && /\d/.test(String(data.pickupDate)))
+                     ? String(data.pickupDate).trim() : todayStr();
     return {platform, orders, date, engine};
 }
-function parseJsonLoose(txt){
-    let s=String(txt).replace(/```json/gi,"").replace(/```/g,"").trim();
-    const m=s.match(/\{[\s\S]*\}/);
-    return JSON.parse(m ? m[0] : s);
-}
 
-// ----- Gemini -----
-async function geminiExtract(canvas, key){
-    const b64=buildImageB64(canvas);
-    const body={ contents:[{parts:[
-            {inline_data:{mime_type:"image/jpeg", data:b64}}, {text:AI_PROMPT}
-        ]}],
-        generationConfig:{ temperature:0, responseMimeType:"application/json",
-            responseSchema:{ type:"OBJECT", properties:{
-                platform:{type:"STRING", enum:PLATFORMS}, totalOrders:{type:"INTEGER"}, pickupDate:{type:"STRING"}
-            }, required:["platform","totalOrders","pickupDate"] } } };
-    let lastErr="";
-    for(const model of AI_PROVIDERS.gemini.models){
-        const url="https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent?key="+key;
-        let r; try{ r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); }
-        catch(e){ lastErr=model+": "+e.message; continue; }
-        if(!r.ok){ lastErr=model+" -> HTTP "+r.status+": "+(await r.text()).slice(0,160); continue; }
-        const j=await r.json();
-        const txt=j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts[0].text;
-        if(!txt){ lastErr="Empty response from "+model; continue; }
-        return normalizeResult(JSON.parse(txt), "Gemini ("+model+")");
-    }
-    throw new Error(lastErr || "Gemini failed");
-}
-
-// ----- OpenAI (ChatGPT) -----
-async function openaiExtract(canvas, key){
-    const b64=buildImageB64(canvas);
-    let lastErr="";
-    for(const model of AI_PROVIDERS.openai.models){
-        const body={ model, temperature:0, response_format:{type:"json_object"},
-            messages:[{ role:"user", content:[
-                {type:"text", text:AI_PROMPT},
-                {type:"image_url", image_url:{url:"data:image/jpeg;base64,"+b64}}
-            ]}] };
-        let r; try{ r=await fetch("https://api.openai.com/v1/chat/completions",
-            {method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+key}, body:JSON.stringify(body)}); }
-        catch(e){ lastErr=model+": "+e.message; continue; }
-        if(!r.ok){ lastErr=model+" -> HTTP "+r.status+": "+(await r.text()).slice(0,160); continue; }
-        const j=await r.json();
-        const txt=j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
-        if(!txt){ lastErr="Empty response from "+model; continue; }
-        return normalizeResult(parseJsonLoose(txt), "OpenAI ("+model+")");
-    }
-    throw new Error(lastErr || "OpenAI failed");
-}
-
-// ----- Claude (Anthropic) -----
-async function claudeExtract(canvas, key){
-    const b64=buildImageB64(canvas);
-    let lastErr="";
-    for(const model of AI_PROVIDERS.claude.models){
-        const body={ model, max_tokens:300,
-            messages:[{ role:"user", content:[
-                {type:"image", source:{type:"base64", media_type:"image/jpeg", data:b64}},
-                {type:"text", text:AI_PROMPT}
-            ]}] };
-        let r; try{ r=await fetch("https://api.anthropic.com/v1/messages",
-            {method:"POST", headers:{
-                "content-type":"application/json", "x-api-key":key,
-                "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true"
-            }, body:JSON.stringify(body)}); }
-        catch(e){ lastErr=model+": "+e.message; continue; }
-        if(!r.ok){ lastErr=model+" -> HTTP "+r.status+": "+(await r.text()).slice(0,160); continue; }
-        const j=await r.json();
-        const txt=j&&j.content&&j.content[0]&&j.content[0].text;
-        if(!txt){ lastErr="Empty response from "+model; continue; }
-        return normalizeResult(parseJsonLoose(txt), "Claude ("+model+")");
-    }
-    throw new Error(lastErr || "Claude failed");
-}
-
-// ----- DeepSeek (OpenAI-compatible, multimodal V4) -----
-async function deepseekExtract(canvas, key){
-    const b64=buildImageB64(canvas);
-    let lastErr="";
-    for(const model of AI_PROVIDERS.deepseek.models){
-        // thinking:disabled — DeepSeek v4 defaults to THINKING at high effort,
-        // which only adds latency here: this call reads fields off a manifest
-        // image, it does not reason about them. It also keeps the reasoning
-        // pass from eating the output budget before any JSON is emitted.
-        const body={ model, temperature:0, thinking:{type:"disabled"},
-            messages:[{ role:"user", content:[
-                {type:"text", text:AI_PROMPT},
-                {type:"image_url", image_url:{url:"data:image/jpeg;base64,"+b64}}
-            ]}] };
-        let r; try{ r=await fetch("https://api.deepseek.com/chat/completions",
-            {method:"POST", headers:{"Content-Type":"application/json","Authorization":"Bearer "+key}, body:JSON.stringify(body)}); }
-        catch(e){ lastErr=model+": "+e.message+" (DeepSeek may block browser calls / CORS)"; continue; }
-        if(!r.ok){ lastErr=model+" -> HTTP "+r.status+": "+(await r.text()).slice(0,160); continue; }
-        const j=await r.json();
-        const txt=j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
-        if(!txt){ lastErr="Empty response from "+model; continue; }
-        return normalizeResult(parseJsonLoose(txt), "DeepSeek ("+model+")");
-    }
-    throw new Error(lastErr || "DeepSeek failed");
-}
-
-// ----- IBI Local (on-device qwen3.5:4b, OpenAI-compatible via the gateway) -----
-// The gateway exposes exactly two routes (POST /v1/chat/completions and
-// GET /v1/models), checks the access code, and allows only IBI origins. It
-// also forces reasoning_effort:"none" upstream; we send it anyway so a browser
-// pointed straight at the runtime on this PC behaves identically. Without it
-// the model spends its whole budget deliberating and returns EMPTY content,
-// which reads as a broken engine rather than a setting.
-async function localExtract(canvas, code){
-    const b64=buildImageB64(canvas);
-    const model=AI_PROVIDERS.local.models[0];
-    const body={ model, temperature:0, reasoning_effort:"none",
-        // A JSON schema, not just json_object: it pins platform to the six
-        // allowed words and totalOrders to an integer, and it measured FASTER
-        // than free-form JSON (2.8s vs 6.9s) because the model stops
-        // negotiating the shape and just fills it in.
-        response_format:{ type:"json_schema", json_schema:{ name:"manifest", strict:true, schema:{
-            type:"object",
-            properties:{ platform:{type:"string", enum:PLATFORMS},
-                         totalOrders:{type:"integer"}, pickupDate:{type:"string"} },
-            required:["platform","totalOrders","pickupDate"] } } },
-        messages:[{ role:"user", content:[
-            {type:"text", text:AI_PROMPT_LOCAL},
-            {type:"image_url", image_url:{url:"data:image/jpeg;base64,"+b64}}
-        ]}] };
-    let r;
-    try{
-        r=await fetch(localBase()+"/v1/chat/completions",
-            {method:"POST", headers:localHeaders(code,{"Content-Type":"application/json"}),
-             body:JSON.stringify(body)});
-    }catch(e){
-        throw new Error("Could not reach the on-device engine at "+localBase()+
-                        " - is the laptop running it awake? ("+e.message+")");
-    }
-    if(!r.ok){
-        const detail=(await r.text()).slice(0,160);
-        if(r.status===401) throw new Error("On-device engine: access code rejected (401).");
-        if(r.status===403) throw new Error("On-device engine: this site is not an allowed caller (403).");
-        if(r.status===502) throw new Error("On-device engine: the gateway is up but the model runtime is not responding (502).");
-        throw new Error("On-device engine -> HTTP "+r.status+": "+detail);
-    }
-    const j=await r.json();
-    const txt=j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
-    // An empty reply with finish_reason "length" is the thinking trap above.
-    if(!txt) throw new Error("On-device engine returned an empty reply"+
-        (j&&j.choices&&j.choices[0]&&j.choices[0].finish_reason==="length"
-            ? " (it spent the whole budget deliberating)." : "."));
-    return normalizeResult(parseJsonLoose(txt), "IBI Local ("+model+")");
-}
-
-// Dispatch to the selected provider.
+/* The one AI call this page makes. It carries no key - just the session
+   token and the photo. The server decides which engine runs, tries the
+   others if that one fails, and tells us which actually answered so a
+   quiet downgrade is visible rather than silent. */
 async function aiExtract(canvas){
-    const provider=getProvider();
-    const key=getKey(provider);
-    if(!key) throw new Error("No "+AI_PROVIDERS[provider].label+" "+credWord(provider)+" set");
-    if(provider==="gemini")   return geminiExtract(canvas, key);
-    if(provider==="openai")   return openaiExtract(canvas, key);
-    if(provider==="claude")   return claudeExtract(canvas, key);
-    if(provider==="deepseek") return deepseekExtract(canvas, key);
-    if(provider==="local")    return localExtract(canvas, key);
-    throw new Error("Unknown AI provider");
+    const token = staffToken();
+    if(!token) throw new Error("Not signed in");
+    const b64 = buildImageB64(canvas);
+    const d = await gasPost({action:"extract", token:token, image:b64});
+    if(!d.ok){
+        const why = (d.tried && d.tried.length) ? " ("+d.tried.join("; ")+")" : "";
+        throw new Error((d.error||"No engine could read this")+why);
+    }
+    const out = normalizeResult(d, d.engine);
+    out.wasChosen = d.wasChosen !== false;
+    return out;
 }
 
 /* ---------- Tesseract fallback extractor ---------- */
@@ -2155,8 +1918,9 @@ async function tesseractExtract(canvas){
 async function runOCR(canvas){
     let result=null, usedFallback=false, aiError="";
 
-    if(getKey()){
-        setStatus("\uD83E\uDD16 "+AI_PROVIDERS[getProvider()].label+" is reading the manifest&hellip;","info");
+    if(staffToken()){
+        setStatus("\uD83E\uDD16 "+(ENGINE_LABELS[engineState.chosen]||"The AI")+
+                  " is reading the manifest&hellip;","info");
         try{ result = await aiExtract(canvas); }
         catch(e){ aiError = (e && e.message) ? e.message : String(e);
                   console.warn("AI failed, falling back:",aiError); }
@@ -2185,8 +1949,7 @@ async function runOCR(canvas){
         const reason = aiError ? (" \u2013 "+aiError) : "";
         setStatus("\u26A0\uFE0F AI engine not used"+reason+
                   ".<br>Offline OCR was used \u2013 please verify the fields below. "+
-                  "Pick an engine &amp; paste its key in \u2699\uFE0F AI Engine &amp; API Key above. "+
-                  "(HTTP 401/403 = key invalid/restricted; 404 = model; CORS/Failed to fetch = browser blocked the call.)","err");
+                  "The engine is chosen by the CEO in \u2699\uFE0F settings; tell them if this keeps happening.","err");
     }else if(result.platform==="Other"){
         setStatus("\u26A0\uFE0F AI could not identify the platform \u2013 please pick it below.","err");
     }else{
@@ -2303,7 +2066,7 @@ async function uploadToGDrive(){
     setStatus("\u23F3 Sending to Google Drive&hellip;","info");
     try{
         const r=await fetch(GAS_URL,{method:"POST",headers:{"Content-Type":"text/plain"},
-            body:JSON.stringify({fileName:fname, fileData:finalPdfBase64})});
+            body:JSON.stringify({action:"save", token:staffToken(), fileName:fname, fileData:finalPdfBase64})});
         const raw=await r.text();
         let d=null; try{ d=JSON.parse(raw); }catch(e){}
 
