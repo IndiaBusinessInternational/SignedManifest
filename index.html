@@ -348,7 +348,7 @@
 <body>
 
 <nav class="top-nav">
-    <span class="version-pill">v8.3</span>
+    <span class="version-pill">v8.4</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -375,7 +375,17 @@
         <option value="openai">OpenAI (ChatGPT)</option>
         <option value="claude">Claude (Anthropic)</option>
         <option value="deepseek">DeepSeek</option>
+        <option value="local">IBI Local (on-device)</option>
     </select>
+    <div id="localUrlRow" style="display:none;">
+        <label class="field-label" style="margin-top:10px;">On-device engine address</label>
+        <input type="url" id="localUrlInput" class="ctrl" autocomplete="off"
+               autocorrect="off" autocapitalize="off" spellcheck="false"
+               placeholder="https://ai-local.indiabusinessinternational.online"
+               oninput="rememberLocalUrl()">
+        <div class="hint" style="margin-top:6px;">Leave as-is unless the engine has moved.
+            The laptop running it must be awake.</div>
+    </div>
     <input type="password" id="apiKeyInput" class="ctrl no-reveal" autocomplete="off"
            autocorrect="off" autocapitalize="off" spellcheck="false"
            style="margin-top:10px;"
@@ -640,17 +650,63 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbyR-r3tIlrg9ji-eaPXnSCk
    sensitive appears in the public page source.
 =================================================================== */
 const AI_PROVIDERS = {
-    gemini: { label:"Google Gemini",     store:"ibi_key_gemini",
+    gemini: { label:"Google Gemini",     store:"ibi_key_gemini", cred:"key",
               models:["gemini-2.5-flash","gemini-2.0-flash","gemini-flash-latest"] },
-    openai: { label:"OpenAI (ChatGPT)",  store:"ibi_key_openai",
+    openai: { label:"OpenAI (ChatGPT)",  store:"ibi_key_openai", cred:"key",
               models:["gpt-4.1-mini","gpt-4o-mini","gpt-4o"] },
-    claude: { label:"Claude (Anthropic)",store:"ibi_key_claude",
+    claude: { label:"Claude (Anthropic)",store:"ibi_key_claude", cred:"key",
               models:["claude-sonnet-4-6","claude-haiku-4-5-20251001","claude-3-5-sonnet-20241022"] },
-    deepseek:{ label:"DeepSeek",         store:"ibi_key_deepseek",
-              models:["deepseek-v4-flash","deepseek-chat"] }
+    deepseek:{ label:"DeepSeek",         store:"ibi_key_deepseek", cred:"key",
+              models:["deepseek-v4-flash","deepseek-chat"] },
+    // The on-device engine. Its credential is not a vendor API key but the
+    // gateway's access code, so the wording changes with `cred` and an extra
+    // address field appears — the model runs on our own laptop, and a phone
+    // has to be told where that laptop is.
+    local:  { label:"IBI Local (on-device)", store:"ibi_ai_local_code", cred:"access code",
+              isLocal:true, models:["qwen3.5:4b"] }
 };
 const PROVIDER_STORE = "ibi_ai_provider";
-let sessionKeys = { gemini:"", openai:"", claude:"", deepseek:"" };
+let sessionKeys = { gemini:"", openai:"", claude:"", deepseek:"", local:"" };
+
+// What this engine's credential is called, so one set of messages can say
+// "key" for the vendors and "access code" for our own engine.
+function credWord(p){ return (AI_PROVIDERS[p] && AI_PROVIDERS[p].cred) || "key"; }
+
+/* ---- On-device engine address ------------------------------------------
+   The manifest is usually photographed on a phone, so "localhost" is not an
+   option: the phone is not the machine running the model. The default is the
+   gateway that fronts the laptop, which is reachable from anywhere, checks the
+   access code, and only exposes the two chat routes. It is stored per browser
+   so a laptop sitting next to the runtime can point straight at it instead. */
+const DEFAULT_LOCAL_URL = "https://ai-local.indiabusinessinternational.online";
+const LOCAL_URL_STORE   = "ibi_ai_local_url";
+function localBase(){
+    let u="";
+    try{ u=localStorage.getItem(LOCAL_URL_STORE)||""; }catch(e){}
+    return (u.trim() || DEFAULT_LOCAL_URL).replace(/\/+$/,"");
+}
+/* True when the address is this very machine. The two cases need different
+   headers, and the difference is not cosmetic - see localHeaders(). */
+function localIsLoopback(){
+    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(localBase());
+}
+/* The access code is for the GATEWAY, which is the only way in from off the
+   laptop. The runtime itself has no authentication, and - measured against it -
+   does not list x-ibi-access in its CORS Access-Control-Allow-Headers, so
+   sending the code straight to loopback makes the browser block the whole
+   request before it is sent ("Failed to fetch", which reads as the engine being
+   down). So the code goes only where it is both needed and accepted. */
+function localHeaders(code, extra){
+    const h=Object.assign({}, extra||{});
+    if(code && !localIsLoopback()) h["x-ibi-access"]=code;
+    return h;
+}
+function rememberLocalUrl(){
+    const el=document.getElementById("localUrlInput");
+    if(!el) return;
+    const v=(el.value||"").trim();
+    try{ if(v) localStorage.setItem(LOCAL_URL_STORE,v); else localStorage.removeItem(LOCAL_URL_STORE); }catch(e){}
+}
 
 function getProvider(){
     const sel=document.getElementById("providerSelect");
@@ -686,8 +742,18 @@ function onProviderChange(){
 function prefillKeyField(){
     const p=getProvider();
     const el=document.getElementById("apiKeyInput");
+    // The address field belongs to the on-device engine only.
+    const row=document.getElementById("localUrlRow");
+    if(row) row.style.display = AI_PROVIDERS[p].isLocal ? "block" : "none";
+    const urlEl=document.getElementById("localUrlInput");
+    if(urlEl && AI_PROVIDERS[p].isLocal){
+        let u=""; try{ u=localStorage.getItem(LOCAL_URL_STORE)||""; }catch(e){}
+        urlEl.value=u;   // blank shows the default as placeholder
+    }
     if(!el) return;
-    el.placeholder="Paste your "+AI_PROVIDERS[p].label+" API key (saves automatically)";
+    el.placeholder = AI_PROVIDERS[p].isLocal
+        ? "Paste the on-device engine access code (saves automatically)"
+        : "Paste your "+AI_PROVIDERS[p].label+" API key (saves automatically)";
     let stored="";
     try{ stored=localStorage.getItem(AI_PROVIDERS[p].store)||""; }catch(e){}
     if(!stored && p==="gemini"){ try{ stored=localStorage.getItem("ibi_gemini_key")||""; }catch(e){} }
@@ -708,14 +774,14 @@ function saveKey(){
     const p=getProvider();
     const el=document.getElementById("apiKeyInput");
     const v=(el.value||"").trim();
-    if(!v){ refreshKeyStatus("\u26A0\uFE0F Paste your "+AI_PROVIDERS[p].label+" key in the box first."); return; }
+    if(!v){ refreshKeyStatus("\u26A0\uFE0F Paste your "+AI_PROVIDERS[p].label+" "+credWord(p)+" in the box first."); return; }
     sessionKeys[p]=v;
     let persisted=false;
     try{ localStorage.setItem(AI_PROVIDERS[p].store,v); persisted=true; }catch(e){ persisted=false; }
     el.value=v;   // keep it visible so you can see it IS saved
     refreshKeyStatus(persisted
-        ? "\u2705 "+AI_PROVIDERS[p].label+" key saved in this browser \u2013 AI extraction is ON."
-        : "\u2705 "+AI_PROVIDERS[p].label+" key set for this session \u2013 AI extraction is ON. "+
+        ? "\u2705 "+AI_PROVIDERS[p].label+" "+credWord(p)+" saved in this browser \u2013 AI extraction is ON."
+        : "\u2705 "+AI_PROVIDERS[p].label+" "+credWord(p)+" set for this session \u2013 AI extraction is ON. "+
           "(This browser blocks storage, so re-enter it next time.)");
 }
 function clearKey(){
@@ -724,18 +790,43 @@ function clearKey(){
     try{ localStorage.removeItem(AI_PROVIDERS[p].store); }catch(e){}
     if(p==="gemini"){ try{ localStorage.removeItem("ibi_gemini_key"); }catch(e){} }
     const el=document.getElementById("apiKeyInput"); if(el) el.value="";
-    refreshKeyStatus("\uD83D\uDDD1\uFE0F "+AI_PROVIDERS[p].label+" key removed. Offline OCR will be used.");
+    refreshKeyStatus("\uD83D\uDDD1\uFE0F "+AI_PROVIDERS[p].label+" "+credWord(p)+" removed. Offline OCR will be used.");
 }
 
 // Quick check that the selected key actually works (no scan needed).
 async function testKey(){
     const p=getProvider(), label=AI_PROVIDERS[p].label, key=getKey(p);
-    if(!key){ refreshKeyStatus("\u26A0\uFE0F Paste your "+label+" key first, then tap Test."); return; }
+    if(!key){ refreshKeyStatus("\u26A0\uFE0F Paste your "+label+" "+credWord(p)+" first, then tap Test."); return; }
     refreshKeyStatus("\u23F3 Testing "+label+" key&hellip;");
     const model=AI_PROVIDERS[p].models[0];
     try{
         let r;
-        if(p==="gemini"){
+        if(p==="local"){
+            // /v1/models is the gateway's other allowed route. It proves three
+            // things at once and costs no generation: the laptop is reachable,
+            // the access code is right, and the runtime is actually SERVING the
+            // model. A listening port that serves an empty model list is the
+            // failure this catches - everything looks up, every scan 404s.
+            r=await fetch(localBase()+"/v1/models",{headers:localHeaders(key)});
+            if(r.ok){
+                let names=[];
+                try{ const j=await r.json(); names=(j.data||[]).map(function(m){return m.id;}); }catch(e){}
+                if(!names.length){
+                    refreshKeyStatus("\u26A0\uFE0F Reached the on-device engine, but it is serving "+
+                        "NO models. The runtime needs restarting on the laptop."); return;
+                }
+                if(names.indexOf(model)<0){
+                    refreshKeyStatus("\u26A0\uFE0F Reached the on-device engine, but <b>"+model+
+                        "</b> is not loaded (it has: "+names.join(", ")+")."); return;
+                }
+                refreshKeyStatus("\u2705 On-device engine reachable and <b>"+model+
+                    "</b> is loaded \u2013 AI extraction is ON."); return;
+            }
+            if(r.status===401){ refreshKeyStatus("\u274C Access code rejected (401). Check the code."); return; }
+            if(r.status===403){ refreshKeyStatus("\u274C This site is not an allowed caller (403)."); return; }
+            refreshKeyStatus("\u274C On-device engine \u2013 HTTP "+r.status+
+                ". The gateway may be up but the runtime down."); return;
+        }else if(p==="gemini"){
             r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent?key="+key,
                 {method:"POST",headers:{"Content-Type":"application/json"},
                  body:JSON.stringify({contents:[{parts:[{text:"ping"}]}]})});
@@ -771,9 +862,9 @@ function refreshKeyStatus(msg){
     const p=getProvider(), label=AI_PROVIDERS[p].label, k=getKey(p);
     if(k){
         const tail = k.length>4 ? k.slice(-4) : k;
-        el.innerHTML = "&#128273; "+label+" key is set &#10003; (\u2022\u2022\u2022\u2022"+tail+") \u2013 AI extraction is ON.";
+        el.innerHTML = "&#128273; "+label+" "+credWord(p)+" is set &#10003; (\u2022\u2022\u2022\u2022"+tail+") \u2013 AI extraction is ON.";
     } else {
-        el.innerHTML = "&#128273; No "+label+" key set \u2013 offline OCR will be used. Paste your key above.";
+        el.innerHTML = "&#128273; No "+label+" "+credWord(p)+" set \u2013 offline OCR will be used. Paste it above.";
     }
 }
 
@@ -790,7 +881,7 @@ function refreshEngineChip(){
         txt.innerHTML = "\uD83D\uDFE2 AI engine: <b>"+label+"</b> &nbsp;\u2013&nbsp; ready";
     }else{
         chip.classList.add("offline");
-        txt.innerHTML = "\uD83D\uDFE1 Offline OCR (no "+label+" key) &nbsp;\u2013&nbsp; tap to set up";
+        txt.innerHTML = "\uD83D\uDFE1 Offline OCR (no "+label+" "+credWord(p)+") &nbsp;\u2013&nbsp; tap to set up";
     }
 }
 
@@ -803,7 +894,7 @@ function decorateProviderOptions(){
         const prov=opt.value;
         if(!AI_PROVIDERS[prov]) return;
         const has = !!getKey(prov);
-        opt.text = AI_PROVIDERS[prov].label + (has ? "  \u2713 key saved" : "  \u2013 no key");
+        opt.text = AI_PROVIDERS[prov].label + (has ? "  \u2713 "+credWord(prov)+" saved" : "  \u2013 no "+credWord(prov));
     });
 }
 
@@ -1803,6 +1894,34 @@ const AI_PROMPT =
     "Respond with ONLY minified JSON and nothing else: "+
     "{\"platform\":\"...\",\"totalOrders\":0,\"pickupDate\":\"...\"}";
 
+/* The on-device model is a 4B one, and it does not follow the prose prompt above
+   as reliably as the hosted engines do. Measured on four manifests (Flipkart
+   clean, Flipkart photographed at an angle under uneven light, Amazon, Meesho),
+   two runs each: with AI_PROMPT it read the row count and the handwritten date
+   correctly 8/8 but got the PLATFORM right only 4/8 - it saw "EKART LOGISTICS"
+   and still answered "Other". Restating the platform step as a literal
+   word -> answer table, and saying outright that "Other" is a last resort,
+   took it to 8/8 on all three fields. Same facts as AI_PROMPT, ordered for a
+   small model. The hosted engines keep the original prompt, which they pass. */
+const AI_PROMPT_LOCAL =
+    "You are reading an Indian eCommerce courier 'pickup manifest'. The photo may be rotated sideways "+
+    "or taken at an angle - read it in any orientation. Read BOTH printed and handwritten text.\n\n"+
+    "STEP 1 - platform. Look at the words printed on the page and apply the FIRST rule that matches:\n"+
+    "  the page shows 'Ekart' or 'EKART LOGISTICS'   -> Flipkart\n"+
+    "  the page shows 'Shopsy'                        -> Shopsy\n"+
+    "  the page shows 'Amazon' or 'Amazon ATS'        -> Amazon\n"+
+    "  the page shows 'Meesho', or a 'Sub Order No.' column, or 'Delhivery' -> Meesho\n"+
+    "  the page shows 'ShopClues'                     -> ShopClues\n"+
+    "  none of those words appear anywhere            -> Other\n"+
+    "Answer 'Other' ONLY if none of those brand words appear. If a brand word appears, you MUST "+
+    "return its platform.\n\n"+
+    "STEP 2 - totalOrders: the EXACT number of order rows in the main table. Prefer a printed total "+
+    "if present ('Total Packages: 6', 'Total Shipments to Dispatch: 4', 'No. Of Shipments: 1'), else count every row.\n\n"+
+    "STEP 3 - pickupDate: the manifest/pickup date written as 'D Month YYYY' with the month spelled "+
+    "out in full, e.g. '29 May 2026'. Use the handwritten date if that is the one present. Empty string if none.\n\n"+
+    "Respond with ONLY minified JSON and nothing else: "+
+    "{\"platform\":\"...\",\"totalOrders\":0,\"pickupDate\":\"...\"}";
+
 function normalizeResult(data, engine){
     const platform = PLATFORMS.includes(data.platform) ? data.platform : "Other";
     const orders   = Math.max(1, parseInt(data.totalOrders)||1);
@@ -1912,15 +2031,65 @@ async function deepseekExtract(canvas, key){
     throw new Error(lastErr || "DeepSeek failed");
 }
 
+// ----- IBI Local (on-device qwen3.5:4b, OpenAI-compatible via the gateway) -----
+// The gateway exposes exactly two routes (POST /v1/chat/completions and
+// GET /v1/models), checks the access code, and allows only IBI origins. It
+// also forces reasoning_effort:"none" upstream; we send it anyway so a browser
+// pointed straight at the runtime on this PC behaves identically. Without it
+// the model spends its whole budget deliberating and returns EMPTY content,
+// which reads as a broken engine rather than a setting.
+async function localExtract(canvas, code){
+    const b64=buildImageB64(canvas);
+    const model=AI_PROVIDERS.local.models[0];
+    const body={ model, temperature:0, reasoning_effort:"none",
+        // A JSON schema, not just json_object: it pins platform to the six
+        // allowed words and totalOrders to an integer, and it measured FASTER
+        // than free-form JSON (2.8s vs 6.9s) because the model stops
+        // negotiating the shape and just fills it in.
+        response_format:{ type:"json_schema", json_schema:{ name:"manifest", strict:true, schema:{
+            type:"object",
+            properties:{ platform:{type:"string", enum:PLATFORMS},
+                         totalOrders:{type:"integer"}, pickupDate:{type:"string"} },
+            required:["platform","totalOrders","pickupDate"] } } },
+        messages:[{ role:"user", content:[
+            {type:"text", text:AI_PROMPT_LOCAL},
+            {type:"image_url", image_url:{url:"data:image/jpeg;base64,"+b64}}
+        ]}] };
+    let r;
+    try{
+        r=await fetch(localBase()+"/v1/chat/completions",
+            {method:"POST", headers:localHeaders(code,{"Content-Type":"application/json"}),
+             body:JSON.stringify(body)});
+    }catch(e){
+        throw new Error("Could not reach the on-device engine at "+localBase()+
+                        " - is the laptop running it awake? ("+e.message+")");
+    }
+    if(!r.ok){
+        const detail=(await r.text()).slice(0,160);
+        if(r.status===401) throw new Error("On-device engine: access code rejected (401).");
+        if(r.status===403) throw new Error("On-device engine: this site is not an allowed caller (403).");
+        if(r.status===502) throw new Error("On-device engine: the gateway is up but the model runtime is not responding (502).");
+        throw new Error("On-device engine -> HTTP "+r.status+": "+detail);
+    }
+    const j=await r.json();
+    const txt=j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;
+    // An empty reply with finish_reason "length" is the thinking trap above.
+    if(!txt) throw new Error("On-device engine returned an empty reply"+
+        (j&&j.choices&&j.choices[0]&&j.choices[0].finish_reason==="length"
+            ? " (it spent the whole budget deliberating)." : "."));
+    return normalizeResult(parseJsonLoose(txt), "IBI Local ("+model+")");
+}
+
 // Dispatch to the selected provider.
 async function aiExtract(canvas){
     const provider=getProvider();
     const key=getKey(provider);
-    if(!key) throw new Error("No "+AI_PROVIDERS[provider].label+" key set");
+    if(!key) throw new Error("No "+AI_PROVIDERS[provider].label+" "+credWord(provider)+" set");
     if(provider==="gemini")   return geminiExtract(canvas, key);
     if(provider==="openai")   return openaiExtract(canvas, key);
     if(provider==="claude")   return claudeExtract(canvas, key);
     if(provider==="deepseek") return deepseekExtract(canvas, key);
+    if(provider==="local")    return localExtract(canvas, key);
     throw new Error("Unknown AI provider");
 }
 

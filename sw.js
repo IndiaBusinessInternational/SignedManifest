@@ -1,12 +1,19 @@
 /* IBI Signed Manifest – Service Worker  (PWA offline shell)
    Bump CACHE_VERSION on every change so phones/laptops pick up the update. */
-const CACHE_VERSION = "ibi-manifest-v8.3";
+const CACHE_VERSION = "ibi-manifest-v8.4";
 const CORE = [ "./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png" ];
 
 self.addEventListener("install", function (e) {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE_VERSION).then(function (c) {
-    return c.addAll(CORE).catch(function(){ /* ignore individual failures */ });
+    // {cache:"reload"} is not optional: a plain addAll goes through the browser's
+    // ordinary HTTP cache, so a version bump can precache the PREVIOUS index.html
+    // and ship old JS under a new cache name. Fetch each file from the network.
+    return Promise.all(CORE.map(function (u) {
+      return fetch(new Request(u, {cache: "reload"}))
+        .then(function (res) { if (res.ok) return c.put(u, res); })
+        .catch(function () { /* ignore individual failures */ });
+    }));
   }));
 });
 
