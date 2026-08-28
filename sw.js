@@ -1,6 +1,6 @@
 /* IBI Signed Manifest – Service Worker  (PWA offline shell)
    Bump CACHE_VERSION on every change so phones/laptops pick up the update. */
-const CACHE_VERSION = "ibi-manifest-v9.0";
+const CACHE_VERSION = "ibi-manifest-v9.1";
 const CORE = [ "./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png" ];
 
 self.addEventListener("install", function (e) {

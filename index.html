@@ -60,7 +60,8 @@
         .top-nav{width:100%;background:var(--header-bg);padding:10px 16px;display:flex;
             align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;
             border-bottom:2px solid var(--accent);}
-        .version-pill{background:var(--accent);color:#000;font-weight:900;font-size:11px;
+        .version-pill{cursor:pointer;user-select:none;
+            background:var(--accent);color:#000;font-weight:900;font-size:11px;
             padding:4px 10px;border-radius:20px;letter-spacing:.5px;}
         .nav-title{color:var(--accent);font-weight:900;font-size:13px;letter-spacing:1.5px;
             text-transform:uppercase;flex:1;text-align:center;}
@@ -388,7 +389,9 @@
 </div>
 
 <nav class="top-nav">
-    <span class="version-pill">v9.0</span>
+    <span class="version-pill" id="versionPill" onclick="onVersionTap()"
+          title="IBI Signed Manifest" role="button" tabindex="0"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.1</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -408,7 +411,8 @@
         <span>&#9881;&#65039; AI Engine</span>
         <button type="button" class="settings-close" onclick="closeSettings()" title="Close">&times;</button>
     </div>
-    <div class="settings-note">Keys live on the server, never in this browser. The engine is the CEO's choice and applies to every device.</div>
+    <div class="settings-note">Signed in as <b>IBI-Manifest</b>.</div>
+    <div class="settings-hidden-engine" style="display:none;">
     <label class="field-label">AI Engine</label>
     <select class="ctrl" id="providerSelect" onchange="onProviderChange()">
         <option value="local">IBI Local (on-device)</option>
@@ -445,6 +449,7 @@
     </div>
 
     <div id="keyStatus" class="hint"></div>
+    </div><!-- /settings-hidden-engine -->
     <div class="key-row" style="margin-top:10px;">
         <button type="button" class="btn-mini btn-clearkey" onclick="signOut()">Sign out</button>
     </div>
@@ -829,12 +834,14 @@ function refreshEngineChip(){
     const en=(engineState.engines||[]).filter(function(x){return x.id===id;})[0];
     const label=ENGINE_LABELS[id]||id;
     chip.classList.remove("ai","offline");
+    // Staff see readiness, never which engine. The CEO sees the name in the
+    // CEO panel, which is where the choice is made.
     if(en && en.configured){
         chip.classList.add("ai");
-        txt.innerHTML = "\uD83D\uDFE2 AI engine: <b>"+label+"</b> &nbsp;\u2013&nbsp; ready";
+        txt.innerHTML = "\uD83D\uDFE2 Ready to read manifests";
     }else{
         chip.classList.add("offline");
-        txt.innerHTML = "\uD83D\uDFE1 <b>"+label+"</b> is not set up on the server &nbsp;\u2013&nbsp; offline OCR will be used";
+        txt.innerHTML = "\uD83D\uDFE1 Reading is limited right now &nbsp;\u2013&nbsp; check the details before saving";
     }
 }
 // Kept because the settings modal and a few status paths call it.
@@ -925,6 +932,26 @@ renderHistory();
     else { showApp(); refreshSession(); }
 })();
 
+/* ---------- CEO panel ---------- */
+/* The engine controls live inside the settings panel but are hidden from it;
+   tapping the version badge is what reveals them. Nothing here is a security
+   boundary - the CEO PIN and the server's re-check of the CEO token are. This
+   only keeps a control staff must not touch out of their way. */
+function engineBlock(){ return document.querySelector(".settings-hidden-engine"); }
+
+function onVersionTap(){
+    const blk=engineBlock();
+    if(!blk) return;
+    const showing = blk.style.display !== "none";
+    if(showing && document.getElementById("settingsPanel").classList.contains("open")){
+        // already open on the CEO view - close the whole thing
+        closeSettings(); return;
+    }
+    blk.style.display="block";
+    openSettings();
+    setCeoStatus("");
+}
+
 /* ---------- Settings modal ---------- */
 function openSettings(){
     const pnl=document.getElementById("settingsPanel");
@@ -935,6 +962,11 @@ function openSettings(){
     renderEngine(); refreshKeyStatus();
 }
 function closeSettings(){
+    // Re-hide the engine block and drop the unlock, so the next person to open
+    // settings gets the plain staff view rather than an unlocked CEO one.
+    const blk=engineBlock();
+    if(blk) blk.style.display="none";
+    if(ceoToken) ceoLock();
     const pnl=document.getElementById("settingsPanel");
     const bd=document.getElementById("settingsBackdrop");
     if(pnl) pnl.classList.remove("open");
@@ -1343,18 +1375,34 @@ function autoCropToContent(srcCanvas){
     }catch(e){ return srcCanvas; }
 }
 
-// Best-effort paper quad on a still canvas (or null).
+/* Best-effort paper quad on a still canvas (or null).
+
+   The area floor was 0.10, which let a quad covering a SIXTH of the frame
+   through. On a real Amazon manifest the detector locked onto one column of
+   the table and cropped a 320x1500 strip out of a 1488x2104 page - throwing
+   away the header, and with it "Saturday 1 August 2026". The AI had no date
+   left to read, and the blank came back as today's date (see normalizeResult).
+   A manifest fills most of the frame; a quad this small is a mis-detection,
+   and keeping the whole frame is much the safer error of the two. */
+const QUAD_MIN_AREA = 0.45;
 function bestQuad(canvas){
-    try{ const q=detectPaperQuad(canvas, 520); if(q && quadArea(q) > canvas.width*canvas.height*0.10) return q; }catch(e){}
+    try{
+        const q=detectPaperQuad(canvas, 520);
+        if(q && quadArea(q) > canvas.width*canvas.height*QUAD_MIN_AREA) return q;
+    }catch(e){}
     return null;
 }
 
 // Add a page: store the ORIGINAL frame + chosen quad, and the cropped/deskewed
 // result used for the PDF. If no quad, fall back to content auto-crop.
-function addPageCanvas(orig, quad){
+function addPageCanvas(orig, quad, keepFull){
     if(!orig) return;
     let cropped;
+    // keepFull: the source is a PDF page, which IS already the document. There
+    // is no desk or floor around it to crop away, so cropping can only lose
+    // content - which is exactly how the pickup date went missing.
     if(quad){ cropped = warpQuad(orig, quad) || autoCropToContent(orig) || orig; }
+    else if(keepFull){ cropped = orig; }
     else { cropped = autoCropToContent(orig) || orig; }
     pages.push(cropped); pageOrigs.push(orig); pageQuads.push(quad||null);
     editingIndex=-1;
@@ -1530,7 +1578,7 @@ async function renderPdfPages(file){
             const c=document.createElement("canvas");
             c.width=viewport.width; c.height=viewport.height;
             await page.render({canvasContext:c.getContext("2d"),viewport}).promise;
-            addPageCanvas(c, bestQuad(c));
+            addPageCanvas(c, null, true);   // PDF page = already the document
         }
         editingIndex=-1;
         const tray=document.getElementById("pagesTray"); if(tray) tray.scrollIntoView({behavior:"smooth", block:"center"});
@@ -1566,6 +1614,7 @@ function backToResult(){
     document.getElementById("resultArea").style.display="block";
     const btn=document.getElementById("uploadBtn");
     if(btn){ btn.innerHTML="\u2601\uFE0F&nbsp; STORE IN G-DRIVE"; btn.disabled=false; btn.onclick=function(){ uploadToGDrive(); }; }
+    syncStoreGate();   // after the re-enable above, or it is undone a line later
     setStatus("\u2705 Crop updated \u2013 you can store the updated PDF now.","ok");
     document.getElementById("resultArea").scrollIntoView({behavior:"smooth", block:"center"});
 }
@@ -1872,8 +1921,19 @@ function buildImageB64(canvas){
 function normalizeResult(data, engine){
     const platform = PLATFORMS.includes(data.platform) ? data.platform : "Other";
     const orders   = Math.max(1, parseInt(data.totalOrders)||1);
-    const date     = (data.pickupDate && /\d/.test(String(data.pickupDate)))
-                     ? String(data.pickupDate).trim() : todayStr();
+    /* Deliberately NOT todayStr(). Falling back to today produced a filled-in,
+       correct-looking date that was simply wrong - a manifest read on 28 Aug
+       was archived as 28 August when the page said 1 August. An unread date
+       must stay empty so it is visibly missing and gets asked for. */
+    let date       = (data.pickupDate && /\d/.test(String(data.pickupDate)))
+                     ? String(data.pickupDate).trim() : "";
+    /* Canonicalise to "D Month YYYY". The model may answer "1 Aug 2026" while
+       the Drive folder is full of "1 August 2026", and the file name is built
+       from this - one archive should not end up with two spellings of the same
+       date. Only the month-NAME form is rewritten: a numeric "1-8-2026" is
+       left alone rather than guessed at, since day-first and month-first are
+       indistinguishable when both numbers are 12 or under. */
+    if(date){ const iso=dmyToISO(date); if(iso) date=isoToDMY(iso); }
     return {platform, orders, date, engine};
 }
 
@@ -1919,8 +1979,7 @@ async function runOCR(canvas){
     let result=null, usedFallback=false, aiError="";
 
     if(staffToken()){
-        setStatus("\uD83E\uDD16 "+(ENGINE_LABELS[engineState.chosen]||"The AI")+
-                  " is reading the manifest&hellip;","info");
+        setStatus("\uD83E\uDD16 Reading the manifest&hellip;","info");
         try{ result = await aiExtract(canvas); }
         catch(e){ aiError = (e && e.message) ? e.message : String(e);
                   console.warn("AI failed, falling back:",aiError); }
@@ -1942,20 +2001,41 @@ async function runOCR(canvas){
 
     // Ensure a stored PDF exists (normally already built in finishScan).
     if(!finalPdfBase64){ buildFinalPdf(); }
+    syncStoreGate();
 
     document.getElementById("resultArea").style.display="block";
 
     if(usedFallback){
         const reason = aiError ? (" \u2013 "+aiError) : "";
-        setStatus("\u26A0\uFE0F AI engine not used"+reason+
+        setStatus("\u26A0\uFE0F Automatic reading was not available"+reason+
                   ".<br>Offline OCR was used \u2013 please verify the fields below. "+
                   "The engine is chosen by the CEO in \u2699\uFE0F settings; tell them if this keeps happening.","err");
+    }else if(!result.date){
+        // The date is what the manifest is filed under. Say it is missing
+        // rather than showing today's and letting it be archived wrongly.
+        setStatus("\u26A0\uFE0F Read the manifest, but <b>could not find the pickup "+
+                  "date</b>. Please set it below - storing is blocked until you do.","err");
+        const el=document.getElementById("pickupDate"); if(el) el.focus();
     }else if(result.platform==="Other"){
         setStatus("\u26A0\uFE0F AI could not identify the platform \u2013 please pick it below.","err");
     }else{
-        setStatus("\u2705 "+result.engine+": "+result.platform+" \u00B7 "+
-                  result.orders+" order(s) \u00B7 "+result.date,"ok");
+        // No engine name: which AI ran is the CEO's business, not the staff's.
+        setStatus("\u2705 "+result.platform+" \u00B7 "+result.orders+" order(s)"+
+                  (result.date ? (" \u00B7 "+result.date) : ""),"ok");
     }
+}
+
+/* The pickup date is what the manifest is filed under, so it must never be
+   guessed. If the AI could not read one, the Store button stays disabled until
+   a person supplies it. */
+function syncStoreGate(){
+    const d=(document.getElementById("pickupDate").value||"").trim();
+    const btn=document.getElementById("uploadBtn");
+    if(btn){
+        btn.disabled = !d;
+        btn.title = d ? "" : "Set the pickup date first";
+    }
+    return !!d;
 }
 
 function setPlatformBadge(p){
@@ -1975,7 +2055,7 @@ function setPlatformBadge(p){
 /* ---------- Build filename: "{Platform} Manifest Total {N} Orders {Date}" ---------- */
 // Structured controls (platform / orders / date) are authoritative: changing any
 // of them rebuilds the output name even if it was hand-edited before.
-function fieldChanged(){ userEditedName=false; rebuildName(); }
+function fieldChanged(){ userEditedName=false; rebuildName(); syncStoreGate(); }
 function stepOrders(delta){
     const el=document.getElementById("orderCount");
     let v=parseInt(el.value)||1; v=Math.max(1, v+delta);
@@ -1994,15 +2074,18 @@ function isoToDMY(iso){
 function onPickDate(){
     const dmy=isoToDMY(document.getElementById("pickupCal").value);
     if(dmy) document.getElementById("pickupDate").value=dmy;
+    syncStoreGate();
     fieldChanged();
 }
 function rebuildName(){
     if(userEditedName) return;
     const p=document.getElementById("platformSelect").value;
     const n=document.getElementById("orderCount").value||1;
-    const d=document.getElementById("pickupDate").value||todayStr();
+    const d=(document.getElementById("pickupDate").value||"").trim();
+    // No date yet -> leave it out of the name rather than stamping today on it.
     document.getElementById("newFileName").value =
-        p+" Manifest Total "+n+" Orders "+d;
+        d ? (p+" Manifest Total "+n+" Orders "+d)
+          : (p+" Manifest Total "+n+" Orders");
     setPlatformBadge(p);
 }
 
