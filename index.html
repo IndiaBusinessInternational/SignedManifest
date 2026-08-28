@@ -348,7 +348,7 @@
 <body>
 
 <nav class="top-nav">
-    <span class="version-pill">v8.4</span>
+    <span class="version-pill">v8.5</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -371,11 +371,11 @@
     <div class="settings-note">Keys are stored only in this browser.</div>
     <label class="field-label">AI Engine</label>
     <select class="ctrl" id="providerSelect" onchange="onProviderChange()">
+        <option value="local">IBI Local (on-device)</option>
         <option value="gemini">Google Gemini</option>
         <option value="openai">OpenAI (ChatGPT)</option>
         <option value="claude">Claude (Anthropic)</option>
         <option value="deepseek">DeepSeek</option>
-        <option value="local">IBI Local (on-device)</option>
     </select>
     <div id="localUrlRow" style="display:none;">
         <label class="field-label" style="margin-top:10px;">On-device engine address</label>
@@ -711,8 +711,20 @@ function rememberLocalUrl(){
 function getProvider(){
     const sel=document.getElementById("providerSelect");
     if(sel && AI_PROVIDERS[sel.value]) return sel.value;
+    return storedProvider();
+}
+
+/* The saved choice, ignoring the dropdown. initProvider MUST use this and not
+   getProvider(): before it runs, the <select> still holds whichever option is
+   first in the markup, so getProvider() would answer with that and then save it
+   over whatever the user had actually picked - silently undoing their choice on
+   every reload. */
+function storedProvider(){
     try{ const p=localStorage.getItem(PROVIDER_STORE); if(p && AI_PROVIDERS[p]) return p; }catch(e){}
-    return "gemini";
+    // The on-device engine is the default: it has no per-scan quota. The hosted
+    // free tiers stop after a handful of manifests with a "try again later",
+    // and the app then drops to Tesseract, which reads these pages far worse.
+    return "local";
 }
 
 function getKey(provider){
@@ -926,14 +938,41 @@ function updateClock(){
 }
 updateClock(); setInterval(updateClock,1000);
 renderHistory();
+/* One-time move of existing devices onto the on-device engine. Without this the
+   new default would be invisible on every phone already in use: each has an
+   engine stored from before, and a stored choice beats a default forever.
+   Nothing is deleted - every saved API key stays put - and picking a hosted
+   engine again sticks, because this flag is only ever set once. */
+const DEFAULTS_MOVED = "ibi_ai_default_local_v85";
+let movedToLocal = false;
+(function migrateToLocalDefault(){
+    try{
+        if(localStorage.getItem(DEFAULTS_MOVED)) return;
+        localStorage.setItem(DEFAULTS_MOVED,"1");
+        const cur=localStorage.getItem(PROVIDER_STORE);
+        if(cur && cur!=="local"){ localStorage.setItem(PROVIDER_STORE,"local"); movedToLocal=true; }
+    }catch(e){}
+})();
+
 (function initProvider(){
-    const p=getProvider();
+    const p=storedProvider();   // NOT getProvider() - see storedProvider()
     const sel=document.getElementById("providerSelect");
     if(sel) sel.value=p;
     prefillKeyField();
     refreshKeyStatus();
     // If no key is set yet, open the settings modal once so it's discoverable.
     if(!getKey()) openSettings();
+    // Say why the engine changed under them, and - if the code is not on this
+    // device yet - why the panel just opened, rather than leaving a staff member
+    // guessing at a settings screen mid-shift.
+    if(movedToLocal){
+        refreshKeyStatus(getKey()
+            ? "\u2699\uFE0F Switched to <b>IBI Local (on-device)</b> \u2013 no scan limit. "+
+              "Your other engines are still saved; pick one any time."
+            : "\u2699\uFE0F Switched to <b>IBI Local (on-device)</b>, which has no scan limit. "+
+              "Paste its access code above to finish. Your other engines are still "+
+              "saved if you would rather switch back.");
+    }
 })();
 
 /* ---------- Settings modal ---------- */
