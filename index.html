@@ -45,9 +45,12 @@
             --bg:#eef2f7; --card:#ffffff; --text:#111827; --text-sub:#6b7280;
             --border:#e5e7eb; --header-bg:#000000;
             --shadow:0 4px 24px rgba(0,0,0,.10); --radius:14px; --radius-sm:8px;
+            /* v9.2: used by the settings sheet, chip, trays and install banner but
+               never defined before, so all of them rendered see-through. */
+            --card-bg:var(--card);
         }
         [data-theme="dark"] {
-            --bg:#0d1117; --card:#161b22; --text:#e6edf3; --text-sub:#8b949e;
+            --bg:#0d1117; --card:#161b22; --card-bg:#161b22; --text:#e6edf3; --text-sub:#8b949e;
             --border:#30363d; --shadow:0 4px 24px rgba(0,0,0,.45);
         }
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -391,7 +394,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.1</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.2</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -411,44 +414,45 @@
         <span>&#9881;&#65039; AI Engine</span>
         <button type="button" class="settings-close" onclick="closeSettings()" title="Close">&times;</button>
     </div>
-    <div class="settings-note">Signed in as <b>IBI-Manifest</b>.</div>
-    <div class="settings-hidden-engine" style="display:none;">
-    <label class="field-label">AI Engine</label>
-    <select class="ctrl" id="providerSelect" onchange="onProviderChange()">
-        <option value="local">IBI Local (on-device)</option>
-        <option value="gemini">Google Gemini</option>
-        <option value="openai">OpenAI (ChatGPT)</option>
-        <option value="claude">Claude (Anthropic)</option>
-        <option value="deepseek">DeepSeek</option>
-    </select>
-    <div class="hint" style="margin-top:6px;" id="engineHint">&nbsp;</div>
+    <div class="settings-note">Signed in as <b>IBI-Manifest</b>. &nbsp;<span id="verLine"></span></div>
 
-    <!-- CEO only. The dropdown above is disabled until this is unlocked, and
-         unlocking proves nothing on its own: the server checks the CEO token
-         again before it will change the engine. -->
-    <div id="ceoRow" style="margin-top:14px;border-top:1px solid rgba(128,128,128,.3);padding-top:12px;">
-        <label class="field-label">CEO controls</label>
+    <!-- v9.2: the CEO PIN box is ALWAYS in this panel. In v9.1 it only appeared
+         after tapping the version badge, which nobody could discover - the CEO
+         opened the gear, saw only "Sign out", and the PIN looked broken. The
+         engine itself stays hidden from staff: only a successful unlock shows it.
+         The unlock proves nothing on its own - the server re-checks the CEO
+         token before it will change the engine. -->
+    <div id="ceoRow">
+        <label class="field-label" for="ceoPin">CEO controls</label>
         <div id="ceoLocked">
             <input type="password" id="ceoPin" class="ctrl no-reveal" autocomplete="off"
                    autocorrect="off" autocapitalize="off" spellcheck="false"
-                   placeholder="CEO PIN to change the engine"
+                   placeholder="CEO PIN"
                    oncopy="return false" oncut="return false" ondragstart="return false"
                    oncontextmenu="return false"
                    onkeydown="if(event.key==='Enter'){event.preventDefault();ceoUnlock();}">
             <div class="key-row" style="margin-top:8px;">
-                <button type="button" class="btn-mini btn-test" onclick="ceoUnlock()">Unlock</button>
-            </div>
-        </div>
-        <div id="ceoUnlocked" style="display:none;">
-            <div class="key-row">
-                <button type="button" class="btn-mini btn-save" onclick="saveEngine()">Save engine</button>
-                <button type="button" class="btn-mini btn-clearkey" onclick="ceoLock()">Lock</button>
+                <button type="button" class="btn-mini btn-test" id="ceoUnlockBtn" onclick="ceoUnlock()">Unlock</button>
             </div>
         </div>
         <div id="ceoStatus" class="hint"></div>
     </div>
 
-    <div id="keyStatus" class="hint"></div>
+    <div class="settings-hidden-engine" style="display:none;margin-top:12px;">
+        <label class="field-label" for="providerSelect">AI Engine</label>
+        <select class="ctrl" id="providerSelect" onchange="onProviderChange()">
+            <option value="local">IBI Local (on-device)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="deepseek">DeepSeek</option>
+        </select>
+        <div class="hint" style="margin-top:6px;" id="engineHint">&nbsp;</div>
+        <div class="key-row" style="margin-top:8px;">
+            <button type="button" class="btn-mini btn-save" onclick="saveEngine()">Save engine</button>
+            <button type="button" class="btn-mini btn-clearkey" onclick="ceoLock()">Lock</button>
+        </div>
+        <div id="keyStatus" class="hint"></div>
     </div><!-- /settings-hidden-engine -->
     <div class="key-row" style="margin-top:10px;">
         <button type="button" class="btn-mini btn-clearkey" onclick="signOut()">Sign out</button>
@@ -722,6 +726,7 @@ const CEO_AUTH_URL = "https://script.google.com/macros/s/AKfycbxIW4j7m51JjX6yt38
 const TOKEN_STORE = "ibi_manifest_session";
 let engineState = { chosen:"local", engines:[] };
 let ceoToken = "";          // memory only - a CEO unlock never outlives the tab
+let backendVersion = "";    // from login/session; shown next to the app version
 
 function staffToken(){
     try{
@@ -763,6 +768,7 @@ async function doLogin(){
         if(!d.ok){ setLoginStatus("\u274C "+(d.error||"Sign-in refused.")); btn.disabled=false; return; }
         setStaffToken(d.token, d.ttlMs);
         if(d.engine) engineState = d.engine;
+        if(d.version) backendVersion = d.version;
         document.getElementById("loginPass").value="";
         setLoginStatus("");
         showApp();
@@ -797,6 +803,7 @@ async function refreshSession(){
     try{
         const d = await gasPost({action:"session", token:t});
         if(d.engine) engineState = d.engine;
+        if(d.version) backendVersion = d.version;
         showApp();
         return true;
     }catch(e){
@@ -855,25 +862,32 @@ function refreshKeyStatus(msg){
 async function ceoUnlock(){
     const pin=(document.getElementById("ceoPin").value||"").trim();
     if(!pin){ setCeoStatus("\u26A0\uFE0F Enter the CEO PIN."); return; }
+    const btn=document.getElementById("ceoUnlockBtn");
+    if(btn) btn.disabled=true;
     setCeoStatus("\u23F3 Checking&hellip;");
     try{
         const r=await fetch(CEO_AUTH_URL,{method:"POST",
             headers:{"Content-Type":"text/plain;charset=utf-8"},
             body:JSON.stringify({action:"verifyCeo", pin:pin})});
         const d=await r.json();
-        if(!d.ok){ setCeoStatus("\u274C "+(d.error||"PIN refused.")); return; }
+        if(!d.ok){
+            setCeoStatus("\u274C "+(d.error||"PIN refused.")+
+                " <br>This box takes the CEO PIN, not the staff password.");
+            return;
+        }
         ceoToken=d.token;
         document.getElementById("ceoPin").value="";
         document.getElementById("ceoLocked").style.display="none";
-        document.getElementById("ceoUnlocked").style.display="block";
-        setCeoStatus("\u2705 Unlocked - you can change the engine.");
+        const blk=engineBlock(); if(blk) blk.style.display="block";
+        setCeoStatus("\u2705 Unlocked.");
         renderEngine();
     }catch(e){ setCeoStatus("\u274C Could not reach CEO Auth: "+e.message); }
+    finally{ if(btn) btn.disabled=false; }
 }
 function ceoLock(){
     ceoToken="";
     document.getElementById("ceoLocked").style.display="block";
-    document.getElementById("ceoUnlocked").style.display="none";
+    const blk=engineBlock(); if(blk) blk.style.display="none";
     setCeoStatus("\uD83D\uDD12 Locked.");
     renderEngine();
 }
@@ -891,6 +905,15 @@ async function saveEngine(){
             : "\u2705 Saved, but <b>"+(ENGINE_LABELS[id]||id)+"</b> has no credential on the "+
               "server yet, so scans will fall through to another engine.");
     }catch(e){ setCeoStatus("\u274C "+e.message); }
+}
+/* One release number for page and backend. The badge is the single source
+   for the app's number; the backend reports its own on login/session. */
+function paintVersions(){
+    const el=document.getElementById("verLine"); if(!el) return;
+    const app=(document.getElementById("versionPill").textContent||"").trim();
+    const be = backendVersion ? ("v"+String(backendVersion).replace(/^v/,"")) : "";
+    if(!be){ el.textContent="App "+app+" \u00B7 Backend v7.0 or older"; return; }
+    el.textContent="App "+app+" \u00B7 Backend "+be+(be===app ? " \u2713" : "");
 }
 function setCeoStatus(msg){
     const el=document.getElementById("ceoStatus"); if(el) el.innerHTML=msg||"";
@@ -933,23 +956,19 @@ renderHistory();
 })();
 
 /* ---------- CEO panel ---------- */
-/* The engine controls live inside the settings panel but are hidden from it;
-   tapping the version badge is what reveals them. Nothing here is a security
-   boundary - the CEO PIN and the server's re-check of the CEO token are. This
-   only keeps a control staff must not touch out of their way. */
+/* The engine controls stay hidden until the CEO PIN unlocks them; the PIN
+   box itself is always in the settings panel (v9.2). Nothing here is a
+   security boundary - the CEO PIN and the server's re-check of the CEO token
+   are. This only keeps a control staff must not touch out of their way. */
 function engineBlock(){ return document.querySelector(".settings-hidden-engine"); }
 
+// The version badge is a shortcut to the same panel, with the PIN box focused.
 function onVersionTap(){
-    const blk=engineBlock();
-    if(!blk) return;
-    const showing = blk.style.display !== "none";
-    if(showing && document.getElementById("settingsPanel").classList.contains("open")){
-        // already open on the CEO view - close the whole thing
-        closeSettings(); return;
-    }
-    blk.style.display="block";
+    const pnl=document.getElementById("settingsPanel");
+    if(pnl && pnl.classList.contains("open")){ closeSettings(); return; }
     openSettings();
-    setCeoStatus("");
+    const p=document.getElementById("ceoPin");
+    if(p && !ceoToken) p.focus();
 }
 
 /* ---------- Settings modal ---------- */
@@ -959,7 +978,8 @@ function openSettings(){
     if(pnl) pnl.classList.add("open");
     if(bd) bd.classList.add("open");
     document.body.style.overflow="hidden";   // lock background scroll
-    renderEngine(); refreshKeyStatus();
+    setCeoStatus("");
+    renderEngine(); refreshKeyStatus(); paintVersions();
 }
 function closeSettings(){
     // Re-hide the engine block and drop the unlock, so the next person to open
@@ -1821,7 +1841,10 @@ function countOrders(text, platform){
 
 /* ---------- Pickup date extraction from manifest text ----------
    Handles "Date : 29 May, 2026", "Dispatch Date: 30/05/2026",
-   "Wednesday 27 May 2026". Falls back to today.                      */
+   "Wednesday 27 May 2026". Returns "" when no date is found - never today:
+   the manifest is FILED under this date, and a guessed one looks correct.
+   (v9.2: a Flipkart manifest that fell back to OCR on 6 Oct was filled in
+   as "6 October 2026" this way.)                                      */
 function extractDate(text){
     // 1) "DD Month YYYY" (with optional comma) - prefer near "date"
     const reWord=/(\d{1,2})\s+([A-Za-z]{3,9}),?\s+(\d{4})/g;
@@ -1839,7 +1862,7 @@ function extractDate(text){
         if(yy<100) yy+=2000;
         if(mm>=1&&mm<=12&&dd>=1&&dd<=31) return dd+" "+MONTHS[mm-1]+" "+yy;
     }
-    return todayStr();
+    return "";
 }
 
 /* ---------- OCR pipeline ---------- */
@@ -1911,7 +1934,12 @@ function enhanceDocument(src){
 // Shared: canvas -> downscaled JPEG base64 (no data: prefix). Enhances first.
 function buildImageB64(canvas){
     const enhanced=enhanceDocument(canvas);
-    const maxW=1600, scale=Math.min(1, maxW/enhanced.width);
+    /* v9.2: cap the LONG side at 1280 px. The old 1600 px WIDTH cap let a
+       portrait page through at ~1600x2260 (3.6 MP) - about 3,900 image tokens
+       on the on-device model, and a scan took longer than Cloudflare's 100 s
+       limit (HTTP 524). Measured 6 Oct 2026: at ~1.2 MP the on-device model
+       still read platform, count and date correctly, sideways too. */
+    const maxSide=1280, scale=Math.min(1, maxSide/Math.max(enhanced.width, enhanced.height));
     const c=document.createElement("canvas");
     c.width=Math.round(enhanced.width*scale); c.height=Math.round(enhanced.height*scale);
     c.getContext("2d").drawImage(enhanced,0,0,c.width,c.height);
@@ -2006,10 +2034,15 @@ async function runOCR(canvas){
     document.getElementById("resultArea").style.display="block";
 
     if(usedFallback){
-        const reason = aiError ? (" \u2013 "+aiError) : "";
-        setStatus("\u26A0\uFE0F Automatic reading was not available"+reason+
-                  ".<br>Offline OCR was used \u2013 please verify the fields below. "+
-                  "The engine is chosen by the CEO in \u2699\uFE0F settings; tell them if this keeps happening.","err");
+        // v9.2: staff see what happened and what to do; the engine-by-engine
+        // reasons (for the CEO) sit behind "Details", never in the headline.
+        const detail = aiError
+            ? '<details style="margin-top:6px;font-weight:400;"><summary>Details for the CEO</summary>'+
+              escapeHtml(aiError)+'</details>' : "";
+        setStatus("\u26A0\uFE0F The automatic reader did not answer, so the basic offline reader was used.<br>"+
+                  "<b>Check the platform, order count and pickup date below</b> before storing"+
+                  (result.date ? "." : " \u2013 the pickup date could not be read, so please set it.")+
+                  " Tell the CEO if this keeps happening."+detail,"err");
     }else if(!result.date){
         // The date is what the manifest is filed under. Say it is missing
         // rather than showing today's and letting it be archived wrongly.
