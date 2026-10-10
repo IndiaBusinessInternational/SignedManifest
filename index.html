@@ -394,7 +394,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.2</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.3</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -441,11 +441,12 @@
     <div class="settings-hidden-engine" style="display:none;margin-top:12px;">
         <label class="field-label" for="providerSelect">AI Engine</label>
         <select class="ctrl" id="providerSelect" onchange="onProviderChange()">
-            <option value="local">IBI Local (on-device)</option>
+            <option value="openrouter">DeepSeek V4.1 Flash (Qwen 3.8 Flash backup)</option>
             <option value="gemini">Google Gemini</option>
             <option value="openai">OpenAI (ChatGPT)</option>
             <option value="claude">Claude (Anthropic)</option>
-            <option value="deepseek">DeepSeek</option>
+            <option value="deepseek">DeepSeek (direct)</option>
+            <option value="local">IBI Local (on-device, slow)</option>
         </select>
         <div class="hint" style="margin-top:6px;" id="engineHint">&nbsp;</div>
         <div class="key-row" style="margin-top:8px;">
@@ -713,9 +714,15 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbyR-r3tIlrg9ji-eaPXnSCk
    answers. Which engine runs is the CEO's choice, stored server-side.
 =================================================================== */
 const ENGINE_LABELS = {
-    local:"IBI Local (on-device)", gemini:"Google Gemini",
-    openai:"OpenAI (ChatGPT)", claude:"Claude (Anthropic)", deepseek:"DeepSeek"
+    openrouter:"DeepSeek V4.1 Flash (Qwen 3.8 Flash backup)",
+    local:"IBI Local (on-device, slow)", gemini:"Google Gemini",
+    openai:"OpenAI (ChatGPT)", claude:"Claude (Anthropic)", deepseek:"DeepSeek (direct)"
 };
+/* v9.3: the default is OpenRouter (DeepSeek V4.1 Flash, Qwen 3.8 Flash backup).
+   The 27B on-device model ran 2 min 4 s on a manifest photo on 10 Oct and was
+   cut off; DeepSeek read it in under 2 s. The server holds the choice - this is
+   only what the page assumes before the server has answered. */
+const DEFAULT_ENGINE = "openrouter";
 
 /* IBI CEO Auth - the one script that knows the CEO PIN. The PIN is never
    compared here: this page sends it there and gets back a signed token,
@@ -724,7 +731,7 @@ const ENGINE_LABELS = {
 const CEO_AUTH_URL = "https://script.google.com/macros/s/AKfycbxIW4j7m51JjX6yt38-a1X6XrDRyZp3czMYN8eXECfP9H2twjfrgLaozWCCl843AgWo0g/exec";
 
 const TOKEN_STORE = "ibi_manifest_session";
-let engineState = { chosen:"local", engines:[] };
+let engineState = { chosen:DEFAULT_ENGINE, engines:[] };
 let ceoToken = "";          // memory only - a CEO unlock never outlives the tab
 let backendVersion = "";    // from login/session; shown next to the app version
 
@@ -822,7 +829,7 @@ function renderEngine(){
             const label=ENGINE_LABELS[opt.value]||opt.value;
             opt.text = label + (en ? (en.configured ? "  \u2713 ready" : "  \u2013 not set up") : "");
         });
-        sel.value = engineState.chosen || "local";
+        sel.value = engineState.chosen || DEFAULT_ENGINE;
         sel.disabled = !ceoToken;      // staff may look, only the CEO may change
     }
     const hint=document.getElementById("engineHint");
@@ -837,7 +844,7 @@ function refreshEngineChip(){
     const chip=document.getElementById("engineChip");
     const txt=document.getElementById("engineChipText");
     if(!chip||!txt) return;
-    const id=engineState.chosen||"local";
+    const id=engineState.chosen||DEFAULT_ENGINE;
     const en=(engineState.engines||[]).filter(function(x){return x.id===id;})[0];
     const label=ENGINE_LABELS[id]||id;
     chip.classList.remove("ai","offline");
