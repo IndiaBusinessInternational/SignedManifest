@@ -372,13 +372,14 @@
             html,body{overflow-x:clip;}
             .top-nav{padding-left:8px;padding-right:8px;}
             .logo-banner{padding-left:10px;padding-right:10px;}
-            .app-card{width:100%;max-width:100%;margin:0 0 8px;border-radius:0;border-left:none;border-right:none;box-shadow:none;overflow-wrap:anywhere;}
+            .app-card{width:100%;max-width:100%;margin:0 0 8px;border-radius:0;border-left:none;border-right:none;box-shadow:none;overflow-wrap:break-word;}
             .card-head{padding-left:10px;padding-right:10px;}
             .card-body{padding-left:10px;padding-right:10px;}
             .install-banner{left:0;right:0;bottom:0;border-radius:14px 14px 0 0;border-left:none;border-right:none;padding-left:10px;padding-right:10px;}
             .login-gate{padding-left:0;padding-right:0;}
             .login-card{max-width:none;border-radius:0;box-shadow:none;padding-left:10px;padding-right:10px;}
             .settings-panel{padding-left:10px;padding-right:10px;}
+            button,.btn,select,input,[role="button"]{overflow-wrap:normal}
         }
     </style>
 </head>
@@ -410,7 +411,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.4</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.5</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
