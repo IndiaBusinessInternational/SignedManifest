@@ -383,6 +383,9 @@
             .settings-panel{padding-left:10px;padding-right:10px;}
             button,.btn,select,input,[role="button"]{overflow-wrap:normal}
         }
+        /* v9.7 (27 Oct 2026): the Share icon inherited the dark page text colour and was nearly invisible on the
+           black top bar; it now uses the same cyan accent as the Install button. */
+        .toggle-row > ibi-share-button{color:var(--accent) !important;}
     </style>
 </head>
 <body>
@@ -413,7 +416,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.6</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.7</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">

@@ -1,5 +1,7 @@
-# IBI Signed Manifest v9.6
+# IBI Signed Manifest v9.7
 Signed Manifest is stored in GDrive
+
+v9.7 (27 Oct 2026): the Share icon in the top bar is cyan (it was dark grey on black and hard to see).
 
 v9.6 (27 Oct 2026): WhatsApp link preview shows the banner again (og-banner.jpg, 1200x630 JPEG under 300 KB; the 326 KB PNG was too big) and a round Share this app button sits in the top bar after sign-in. Page only; the Apps Script is unchanged.
 
