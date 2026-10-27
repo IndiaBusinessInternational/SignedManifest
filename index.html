@@ -383,6 +383,34 @@
             .settings-panel{padding-left:10px;padding-right:10px;}
             button,.btn,select,input,[role="button"]{overflow-wrap:normal}
         }
+        /* v9.8 (Founder, 27 Oct 2026: "Yes, make all the apps edge to edge on laptop too"): edge to edge on every
+           screen. The centred 520px card is gone: the app card spans the whole screen on tablets and laptops too
+           (no side border, radius or shadow; 10px inner sides; top bar 10px, phones keep 8px). From 1000px the
+           card body is two columns: the buttons, page tray, form and history on the left, the crop editor or the
+           finished preview on the right (a placeholder until a page is scanned). Phones keep one column in the
+           same order. The staff sign-in card stays a centred dialog on laptops. */
+        html,body{overflow-x:clip;}
+        .app-card{width:100%;max-width:none;margin:0 0 8px;border-radius:0;border-left:none;border-right:none;box-shadow:none;overflow-wrap:break-word;}
+        .app-card button,.app-card .btn,.app-card select,.app-card input{overflow-wrap:normal;}
+        .card-head,.card-body,.logo-banner{padding-left:10px;padding-right:10px;}
+        .footer{padding-left:10px;padding-right:10px;}
+        @media (min-width:641px){ .top-nav{padding-left:10px;padding-right:10px;} }
+        .sm-empty{display:none;}
+        @media (min-width:1000px){
+            .card-body{display:grid;grid-template-columns:minmax(340px,5fr) minmax(0,7fr);column-gap:24px;
+                grid-template-rows:repeat(10,auto) 1fr;align-items:start;}
+            .card-body > *{grid-column:1;}
+            .card-body > #cropContainer,.card-body > #imagePreview,.card-body > .sm-empty{grid-column:2;grid-row:1 / -1;}
+            .card-body > #cropContainer{margin-top:12px;}
+            .card-body > #imagePreview{margin-top:12px;justify-self:center;max-height:calc(100dvh - 140px);object-fit:contain;}
+            .sm-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+                min-height:260px;margin-top:12px;padding:24px;border:2px dashed var(--border);border-radius:var(--radius-sm);
+                color:var(--text-sub);font-size:15px;text-align:center;}
+            .sm-empty strong{color:var(--text);font-size:17px;}
+            .sm-empty-icon{font-size:34px;line-height:1;opacity:.6;}
+            .card-body:has(> #cropContainer[style*="block"]) > .sm-empty,
+            .card-body:has(> #imagePreview[style*="block"]) > .sm-empty{display:none;}
+        }
         /* v9.7 (27 Oct 2026): the Share icon inherited the dark page text colour and was nearly invisible on the
            black top bar; it now uses the same cyan accent as the Install button. */
         .toggle-row > ibi-share-button{color:var(--accent) !important;}
@@ -416,7 +444,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.7</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.8</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -535,6 +563,8 @@
             &#128194;&nbsp; Upload image or PDF
         </button>
         <div class="hint">Auto-Scan finds the paper edges and captures automatically, then crops &amp; straightens the page &bull; add more pages for one PDF &bull; tap &#9998; on any page to crop manually</div>
+
+        <div class="sm-empty" aria-hidden="true"><span class="sm-empty-icon">&#128196;</span><strong>Your scanned manifest appears here</strong>Auto-Scan with the camera or upload an image or PDF on the left.</div>
 
         <div id="cropContainer">
             <div class="crop-caption">Drag the 4 dots onto the paper corners, then Save. &#8634;/&#8635; rotate &middot; Full = whole image.</div>
