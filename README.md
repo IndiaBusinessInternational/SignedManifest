@@ -1,4 +1,7 @@
-# IBI Signed Manifest v9.9
+# IBI Signed Manifest v9.10
+
+v9.10 (6 Nov 2026): MyStore.in and IndiaMart manifests are recognised and can be chosen.
+
 
 v9.9 (6 Nov 2026): JioMart and IBI Website manifests are recognised and can be chosen.
 Signed Manifest is stored in GDrive

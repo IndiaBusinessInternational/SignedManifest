@@ -259,6 +259,8 @@
         .badge-shopclues{background:#f57224;color:#fff;}
         .badge-jiomart{background:#0a2885;color:#fff;}
         .badge-ibi{background:#00c5ff;color:#000;}
+        .badge-mystore{background:#22b8a0;color:#000;}
+        .badge-indiamart{background:#e8912d;color:#000;}
         .badge-other{background:#6b7280;color:#fff;}
 
         .field-label{display:block;font-size:10px;font-weight:700;color:var(--accent);
@@ -446,7 +448,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.9</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.10</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -607,6 +609,8 @@
                         <option>ShopClues</option>
                         <option>JioMart</option>
                         <option>IBI Website</option>
+                        <option>MyStore.in</option>
+                        <option>IndiaMart</option>
                         <option>Other</option>
                     </select>
                 </div>
@@ -1837,6 +1841,8 @@ function detectPlatform(text){
     /* v9.9: before the Delhivery rule below, because JioMart ships by Delhivery too. */
     if(/jio\s*mart/.test(t) || /\bjm[0-9a-f]{16,}\b/.test(t)) return "JioMart";
     if(/\bibi\d{6,}\b/.test(t)) return "IBI Website";
+    if(/my\s*store/.test(t)) return "MyStore.in";
+    if(/india\s*mart/.test(t)) return "IndiaMart";
 
     // Amazon: keyword or order-ID pattern DDD-DDDDDDD-DDDDDDD
     if(/amazon|atspl/.test(t) || /\b\d{3}-\d{7}-\d{7}\b/.test(text)) return "Amazon";
@@ -1940,7 +1946,7 @@ function extractDate(text){
 }
 
 /* ---------- OCR pipeline ---------- */
-const PLATFORMS = ["Amazon","Flipkart","Shopsy","Meesho","ShopClues","JioMart","IBI Website","Other"];
+const PLATFORMS = ["Amazon","Flipkart","Shopsy","Meesho","ShopClues","JioMart","IBI Website","MyStore.in","IndiaMart","Other"];
 
 /* ========== AI EXTRACTORS (Gemini / OpenAI / Claude / DeepSeek) — browser-side ========== */
 
@@ -2154,6 +2160,8 @@ function setPlatformBadge(p){
         ShopClues:["badge-shopclues","\uD83C\uDFEC ShopClues"],
         JioMart:["badge-jiomart","\uD83D\uDED2 JioMart"],
         "IBI Website":["badge-ibi","\uD83C\uDF10 IBI Website"],
+        "MyStore.in":["badge-mystore","\uD83C\uDFEA MyStore.in"],
+        IndiaMart:["badge-indiamart","\uD83C\uDFED IndiaMart"],
         Other:["badge-other","\uD83D\uDCC4 Unknown"]
     };
     const [cls,label]=map[p]||map.Other;
