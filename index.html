@@ -257,6 +257,8 @@
         .badge-shopsy{background:#9c27b0;color:#fff;}
         .badge-meesho{background:#e91e8c;color:#fff;}
         .badge-shopclues{background:#f57224;color:#fff;}
+        .badge-jiomart{background:#0a2885;color:#fff;}
+        .badge-ibi{background:#00c5ff;color:#000;}
         .badge-other{background:#6b7280;color:#fff;}
 
         .field-label{display:block;font-size:10px;font-weight:700;color:var(--accent);
@@ -444,7 +446,7 @@
 <nav class="top-nav">
     <span class="version-pill" id="versionPill" onclick="onVersionTap()"
           title="IBI Signed Manifest" role="button" tabindex="0"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.8</span>
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();onVersionTap();}">v9.9</span>
     <div class="toggle-row">
         <span class="toggle-icon" id="themeIcon">&#9728;&#65039;</span>
         <label class="switch" title="Toggle dark / light mode">
@@ -603,6 +605,8 @@
                         <option>Shopsy</option>
                         <option>Meesho</option>
                         <option>ShopClues</option>
+                        <option>JioMart</option>
+                        <option>IBI Website</option>
                         <option>Other</option>
                     </select>
                 </div>
@@ -1830,6 +1834,10 @@ function detectPlatform(text){
     // ShopClues: unique report header
     if(/shopclues/.test(t)) return "ShopClues";
 
+    /* v9.9: before the Delhivery rule below, because JioMart ships by Delhivery too. */
+    if(/jio\s*mart/.test(t) || /\bjm[0-9a-f]{16,}\b/.test(t)) return "JioMart";
+    if(/\bibi\d{6,}\b/.test(t)) return "IBI Website";
+
     // Amazon: keyword or order-ID pattern DDD-DDDDDDD-DDDDDDD
     if(/amazon|atspl/.test(t) || /\b\d{3}-\d{7}-\d{7}\b/.test(text)) return "Amazon";
 
@@ -1893,6 +1901,13 @@ function countOrders(text, platform){
         return Math.max(1, sub, awb, size);
     }
 
+    /* v9.9: one JM or IBI order id per row; ST Courier numbers are 11 digits, so AWB length alone misses them. */
+    if(platform==="JioMart" || platform==="IBI Website"){
+        const ids=(text.match(/\b(?:jm[0-9a-f]{16,}|ibi\d{6,})\b/gi)||[]).length;
+        const nos=(text.match(/\b\d{11,16}\b/g)||[]).length;
+        return Math.max(1,ids,nos);
+    }
+
     // Flipkart / Shopsy / Other: count AWB-like numbers
     const awb=text.match(/\b\d{12,16}\b/g)||[];
     return Math.max(1,awb.length);
@@ -1925,7 +1940,7 @@ function extractDate(text){
 }
 
 /* ---------- OCR pipeline ---------- */
-const PLATFORMS = ["Amazon","Flipkart","Shopsy","Meesho","ShopClues","Other"];
+const PLATFORMS = ["Amazon","Flipkart","Shopsy","Meesho","ShopClues","JioMart","IBI Website","Other"];
 
 /* ========== AI EXTRACTORS (Gemini / OpenAI / Claude / DeepSeek) — browser-side ========== */
 
@@ -2137,6 +2152,8 @@ function setPlatformBadge(p){
         Shopsy:["badge-shopsy","\uD83D\uDECD\uFE0F Shopsy"],
         Meesho:["badge-meesho","\uD83D\uDECD\uFE0F Meesho"],
         ShopClues:["badge-shopclues","\uD83C\uDFEC ShopClues"],
+        JioMart:["badge-jiomart","\uD83D\uDED2 JioMart"],
+        "IBI Website":["badge-ibi","\uD83C\uDF10 IBI Website"],
         Other:["badge-other","\uD83D\uDCC4 Unknown"]
     };
     const [cls,label]=map[p]||map.Other;
